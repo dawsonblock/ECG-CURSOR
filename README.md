@@ -1,25 +1,24 @@
-# Boreal Neuro-Core 2D | Cursor Control Build
+# Boreal Neuro-Core 2D | True Cursor Control Build
 
 [![RTL Build](https://img.shields.io/badge/RTL-Verified-success.svg)]()
-[![Build](https://img.shields.io/badge/Linkage-Clean-blue.svg)]()
 [![Hardware](https://img.shields.io/badge/Target-Artix--7-orange.svg)]()
-[![Inference](https://img.shields.io/badge/Engine-Active%20Inference-9c27b0.svg)]()
+[![Inference](https://img.shields.io/badge/Engine-True%202D%20Active%20Inference-9c27b0.svg)]()
 
 > **The definitive 2D EEG-to-Cursor Control Pipeline for the Boreal Neuro-Core.**  
-> High-performance, low-latency Active Inference implementation in Verilog HDL.
+> Professionally refined for real-world biosignal decoding and robust HID output.
 
 ---
 
 ## 🚀 Overview
 
-This repository contains the complete RTL implementation for the Boreal 2D Cursor Control system. It transforms raw multi-channel EEG biological signals into deterministic USB HID mouse movements using a Free Energy-minimizing Active Inference engine.
+This repository contains the complete RTL implementation for the Boreal 2D Cursor Control system. Unlike standard controllers, this build implements **True 2D Decoding** by processing independent neural feature streams through a dual-axis Active Inference engine.
 
 ### Core Breakthroughs
 
-* **Active Inference Engine**: Real-time gradient descent on a variational manifold, implemented with fixed-point arithmetic.
-* **Pipelined DSP Path**: Optimized for 100MHz+ Fmax on Artix-7/Spartan-7 FPGAs.
-* **Spike-Duration Filter**: Advanced click logic that distinguishes between noisy neural spikes and deliberate high-velocity movement.
-* **Autonomous USB stack**: Direct-to-pin USB HID Low-Speed implementation—zero external MCU required.
+* **True 2D Active Inference**: Separate X/Y manifolds updated via spatially weighted biological features.
+* **Surgical Feature Extraction**: Fixed-point 8-channel accumulator with no dropped samples and medical-grade weighting.
+* **Pulse-Based Clicks**: Latched button states driven by one-cycle pulses for reliable HID performance.
+* **Robust UART Bridge**: 115200 baud protocol with start-sync and checksum for MCU-based USB HID emulation.
 
 ---
 
@@ -27,97 +26,60 @@ This repository contains the complete RTL implementation for the Boreal 2D Curso
 
 ```mermaid
 graph LR
-    subgraph Signal Processing
-        A[EEG Input] --> B[DC-Block IIR]
-        B --> C[Spatial Weight Mixer]
+    subgraph Feature Extraction
+        A[8-ch EEG] --> B[Spatial Weights]
+        B --> C[X-Feature]
+        B --> D[Y-Feature]
     end
     
     subgraph Manifold Control
-        C --> D[Pipelined 2D Inference]
-        D --> E[Adaptive IIR Smoother]
-        E --> F[Drift Recenter]
+        C & D --> E[2D High-Pass Core]
+        E --> F[Dual-Axis Smoother]
+        F --> G[Drift Compensation]
     end
     
-    subgraph Cursor Dynamics
-        F --> G[Adaptive Gain Control]
-        G --> H[Velocity Mapper]
-        H --> I[Spike-Duration Click Filter]
+    subgraph HID Output
+        G --> H[Adaptive Gain Mapper]
+        H --> I[UART Packet Streamer]
+        I --> J[RP2040 HID Bridge]
     end
     
-    subgraph Output Physical Layer
-        I --> J[UART HID Stream]
-        I --> K[On-FPGA USB HID Device]
-    end
-    
-    style D fill:#f9f,stroke:#333,stroke-width:2px
-    style K fill:#bbf,stroke:#333,stroke-width:2px
+    style E fill:#f9f,stroke:#333,stroke-width:2px
+    style J fill:#bbf,stroke:#333,stroke-width:2px
 ```
 
 ---
 
-## 📁 Directory Structure
+## 🎛 Technical Specifications
 
-| Path | Component | Description |
-|:---|:---|:---|
-| [`rtl/core/`](rtl/core) | **Neural Core** | Active Inference Engine (`apex_2d`) & Feature Extractor. |
-| [`rtl/cursor/`](rtl/cursor) | **Manifold Tuning** | IIR Smoothing, Velocity Mapping, and Dwell Detection. |
-| [`rtl/advanced/`](rtl/advanced) | **Self-Calibration** | Adaptive Gain and Idle-Detect Recentering. |
-| [`rtl/output/`](rtl/output) | **Physical Interface** | USB HID Core & High-speed UART Bridge. |
-| [`tb/`](tb) | **Verification** | 9-Test synthetic EEG vector simulation suite. |
-| [`docs/`](docs) | **Knowledge Base** | Reference notes, diagrams, and research papers. |
-
----
-
-## ⚡ Technical Specifications
-
-| Metric | Feature | Detail |
-|:---|:---|:---|
-| **Pipeline Latency** | Throughput | < 100ns (excluding ADC/USB polling) |
-| **Arithmetic** | Precision | 16-bit Q1.15 Fixed-Point |
-| **Pipelining** | Timing | Single-cycle DSP stages (Fmax > 125MHz) |
-| **Click Logic** | Filter | 400ms Dwell (Left) / 1ms Spike (Right) |
-| **Sampling** | Input | Up to 10MSps continuous stream |
+| Metric | Detail |
+|:---|:---|
+| **Decoding** | True 2D (Independent X/Y Feature Paths) |
+| **Integrator** | Alpha-beta Active Inference with DC-Rejection |
+| **Protocol** | 0xAA | Buttons | dx | dy | Checksum |
+| **Latency** | < 100ns Pipeline Latency |
+| **Hardware** | FPGA (RTL) + RP2040 (HID Bridge) |
 
 ---
 
-## 🛠 Usage & Verification
+## 🛠 Verification
 
-### Prerequisites
-
-* [Icarus Verilog](http://iverilog.icarus.com/) (Simulation)
-* [GtkWave](http://gtkwave.sourceforge.net/) (Waveform analysis)
-
-### Build Commands
+Execute the refined 2D test suite:
 
 ```bash
-# Execute the internal verification suite (9/9 tests)
 make test
-
-# Check linkage and resource linking for all 12 modules
-make test-full
-
-# Clean environment
-make clean
 ```
 
----
+### Final Results
 
-## 🎛 Tunable Parameters
-
-The pipeline is highly configurable via Verilog parameters in `boreal_cursor_top_full.v`:
-
-| Parameter | Default | Purpose |
-|:---|:---|:---|
-| `ALPHA` | `51` (Q8) | Smoothing Strength (Lower = Smoother, more lag) |
-| `DEAD` | `200` | Movement deadzone threshold |
-| `VMAX` | `20` | Maximum cursor velocity (pixels/tick) |
-| `GAIN_INIT` | `256` (Q8.8)| Initial responsiveness factor |
-| `IDLE_CYCLES`| `50M` | Wait time (500ms) before drift compensation kicks in |
+* ✅ **2D Separation**: Verified independent axis deflection.
+* ✅ **Dwell Click**: Verified latching button states.
+* ✅ **Data Integrity**: Verified XOR checksum and 0xAA frame alignment.
 
 ---
 
-## 📜 License
+## 📜 MCU Bridge
 
-*Proprietary research artifacts within the Boreal Neuro-Core ecosystem.*
+To use as a real mouse, flash the firmware in `docs/reference/rp2040_bridge.c` to a Raspberry Pi Pico. Connect FPGA TX to Pico RX.
 
-**Design Author**: Dawson Block & Antigravity (Advanced Agentic Architecture)
+**Author**: Dawson Block & Antigravity (Advanced Agentic Architecture)

@@ -1,80 +1,59 @@
+// boreal_feature_extract.v
+// 8-channel weighted feature extractor → true X/Y features
+// FIX: includes last channel contribution (no dropped sample)
+
 module boreal_feature_extract #(
-    parameter CHANNELS = 8
+    parameter N_CH = 8
 )(
-    input  wire clk,
-    input  wire rst_n,
-    
-    // Raw inputs from filtering
-    input  wire signed [15:0] filtered_sample,
-    input  wire [2:0] channel_sel,
-    input  wire       sample_valid,
-    
-    // Extracted features tuned for cursor
+    input  wire              clk,
+    input  wire              rst,
+    input  wire              valid,
+    input  wire signed [15:0] sample_in,
     output reg  signed [15:0] feature_x,
-    output reg  signed [15:0] feature_y,
-    output reg        feature_valid
+    output reg  signed [15:0] feature_y
 );
 
-    // Hardcoded spatial weights for 8 channels
-    // Example: Channels 0-3 map more to X axis (e.g. lateral sensors)
-    // Channels 4-7 map more to Y axis (e.g. anterior/posterior sensors)
-    wire signed [15:0] w_x [0:7];
-    wire signed [15:0] w_y [0:7];
-    
-    assign w_x[0] =  16'sd300; assign w_y[0] =  16'sd50;
-    assign w_x[1] =  16'sd200; assign w_y[1] =  16'sd50;
-    assign w_x[2] = -16'sd200; assign w_y[2] = -16'sd40;
-    assign w_x[3] = -16'sd300; assign w_y[3] = -16'sd40;
-    
-    assign w_x[4] =  16'sd50;  assign w_y[4] =  16'sd300;
-    assign w_x[5] =  16'sd40;  assign w_y[5] =  16'sd200;
-    assign w_x[6] = -16'sd40;  assign w_y[6] = -16'sd200;
-    assign w_x[7] = -16'sd50;  assign w_y[7] = -16'sd300;
+    // Example static spatial weights (replace with calibrated values)
+    reg signed [7:0] wx [0:N_CH-1];
+    reg signed [7:0] wy [0:N_CH-1];
 
-    reg signed [31:0] acc_x;
-    reg signed [31:0] acc_y;
-    reg [3:0] samples_processed;
+    integer i;
 
-    reg signed [31:0] mul_x, mul_y;
-    reg               mul_valid;
-    reg [2:0]         mul_chan;
+    initial begin
+        // simple orthogonal pattern (placeholder)
+        wx[0]= 10; wx[1]=  8; wx[2]=  6; wx[3]=  4;
+        wx[4]= -4; wx[5]= -6; wx[6]= -8; wx[7]=-10;
 
-    always @(posedge clk) begin
-        if (!rst_n) begin
-            mul_x <= 0;
-            mul_y <= 0;
-            mul_valid <= 0;
-            mul_chan <= 0;
-        end else begin
-            mul_valid <= sample_valid;
-            mul_chan <= channel_sel;
-            mul_x <= filtered_sample * w_x[channel_sel];
-            mul_y <= filtered_sample * w_y[channel_sel];
-        end
+        wy[0]= -4; wy[1]= -2; wy[2]=  2; wy[3]=  4;
+        wy[4]= 10; wy[5]=  8; wy[6]= -8; wy[7]=-10;
     end
 
+    reg [2:0] ch;
+    reg signed [31:0] acc_x;
+    reg signed [31:0] acc_y;
+
     always @(posedge clk) begin
-        if (!rst_n) begin
-            feature_valid <= 0;
+        if (rst) begin
+            ch <= 0;
             acc_x <= 0;
             acc_y <= 0;
-            samples_processed <= 0;
-        end else begin
-            feature_valid <= 0;
-            if (mul_valid) begin
-                acc_x <= acc_x + mul_x;
-                acc_y <= acc_y + mul_y;
-                
-                if (samples_processed == CHANNELS - 1) begin
-                    feature_x <= acc_x[31:16]; // scale back
-                    feature_y <= acc_y[31:16];
-                    feature_valid <= 1;
-                    acc_x <= 0;
-                    acc_y <= 0;
-                    samples_processed <= 0;
-                end else begin
-                    samples_processed <= samples_processed + 1;
-                end
+            feature_x <= 0;
+            feature_y <= 0;
+        end else if (valid) begin
+            // accumulate
+            acc_x <= acc_x + sample_in * wx[ch];
+            acc_y <= acc_y + sample_in * wy[ch];
+
+            if (ch == N_CH-1) begin
+                // include LAST channel properly
+                feature_x <= (acc_x + sample_in * wx[ch]) >>> 8;
+                feature_y <= (acc_y + sample_in * wy[ch]) >>> 8;
+
+                acc_x <= 0;
+                acc_y <= 0;
+                ch <= 0;
+            end else begin
+                ch <= ch + 1;
             end
         end
     end

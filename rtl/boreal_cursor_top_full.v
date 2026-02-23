@@ -1,16 +1,10 @@
 /*
- * Boreal Cursor Top — Full Build Integration
+ * Boreal Cursor Top — Full Build Integration (Refined 2D)
  *
- * Complete pipeline:
- *   EEG → Feature Extract → 2D Apex Core → Smoothing → Drift Recenter
- *         → Cursor Map (with Adaptive Gain) → Dwell Click → Safety Gate
- *         → UART TX (MCU bridge) + On-FPGA USB HID
- *
- * All advanced modules integrated:
- *   - Multi-channel feature extractor
- *   - Adaptive gain auto-tuning
- *   - Drift compensation / recenter
- *   - On-FPGA USB HID mouse core
+ * This version implements a true 2D pipeline:
+ * 8-channel EEG -> Feature Extract (Spatially Weighted X/Y) -> 2D Apex Core 
+ * -> Smoothing -> Drift Recenter -> Adaptive Gain -> Mapper -> Dwell Click
+ * -> Latch Buttons -> UART (Robust 0xAA Packet)
  */
 module boreal_cursor_top_full (
     input  wire clk,
@@ -25,55 +19,58 @@ module boreal_cursor_top_full (
     input  wire        send_packet_strobe,
     input  wire        recenter_pulse,
 
-    // UART OUT (MCU bridge path)
+    // UART OUT (Robust 0xAA Format)
     output wire uart_tx,
     
-    // USB HID OUT (direct FPGA path)
+    // USB HID OUT (Note: Placeholder/Transmitter only, see docs)
     output wire usb_dp_out,
     output wire usb_dn_out,
     output wire usb_dp_oe,
     output wire usb_dn_oe
 );
 
-    // =========================================================================
-    // 1. Feature Extraction
-    // =========================================================================
-    // The feature extractor is wired in parallel with the core.
-    // In the full build, it provides spatially weighted X/Y features.
-    // For now, the apex core uses raw filtered samples directly;
-    // the feature extractor output can be routed in as an alternative path.
-    
-    wire signed [15:0] feat_x, feat_y;
-    wire feat_valid;
-    
-    // The feature extractor takes filtered_sample from the core's DC blocker.
-    // We instantiate a separate filtered_sample tap for it.
-    // In practice, the apex core's internal filter_acc is shared.
-    wire signed [15:0] filtered_tap = raw_adc_in[23:8]; // simplified tap
-    
-    boreal_feature_extract u_feat (
-        .clk(clk),
-        .rst_n(rst_n),
-        .filtered_sample(filtered_tap),
-        .channel_sel(adc_channel_sel),
-        .sample_valid(adc_data_ready),
-        .feature_x(feat_x),
-        .feature_y(feat_y),
-        .feature_valid(feat_valid)
-    );
+    // Internal resets (active high)
+    wire rst = !rst_n;
+    wire halt = !emergency_halt_n;
 
     // =========================================================================
-    // 2. 2-D Active Inference Core
+    // 1. Feature Extraction (Corrected Accumulator)
+    // =========================================================================
+    wire signed [15:0] feat_x, feat_y;
+    // We use bits [23:8] as the "filtered_sample" for now (placeholder for real bandpower)
+    wire signed [15:0] adc_sample_16 = raw_adc_in[23:8];
+
+    boreal_feature_extract u_feat (
+        .clk(clk),
+        .rst(rst),
+        .valid(adc_data_ready),
+        .sample_in(adc_sample_16),
+        .feature_x(feat_x),
+        .feature_y(feat_y)
+    );
+
+    // Feature valid pulse (fires every 8 channels)
+    // In our feature extractor, feature_x/y update when ch == 7.
+    // We can generate a 'feat_valid' pulse by detecting the ch rollover.
+    // However, the feature extractor provided doesn't output 'valid'. 
+    // Let's assume the core can run on every clk as long as it tracks features.
+    // For simplicity, we'll pulse the core when ch == 0 (start of next cycle).
+    reg [2:0] last_ch;
+    always @(posedge clk) last_ch <= u_feat.ch;
+    wire feat_ready = (u_feat.ch == 0 && last_ch == 7);
+
+    // =========================================================================
+    // 2. 2-D Active Inference Core (Separate X/Y Inputs)
     // =========================================================================
     wire signed [15:0] mu_x, mu_y;
     
     boreal_apex_core_2d u_core (
         .clk(clk),
-        .rst_n(rst_n),
-        .emergency_halt_n(emergency_halt_n),
-        .raw_adc_in(raw_adc_in),
-        .adc_channel_sel(adc_channel_sel),
-        .adc_data_ready(adc_data_ready),
+        .rst(rst),
+        .valid(feat_ready),
+        .x_in(feat_x),
+        .y_in(feat_y),
+        .emergency_halt(halt),
         .mu_x(mu_x),
         .mu_y(mu_y)
     );
@@ -96,12 +93,9 @@ module boreal_cursor_top_full (
     // 4. Drift Compensation / Recenter
     // =========================================================================
     wire signed [15:0] mu_x_c, mu_y_c;
-    wire signed [7:0] dx_for_drift, dy_for_drift; // forward declaration needed
-    
-    // We need dx/dy for drift detection — use pre-gain mapped values.
-    // To break circular dependency, we use the raw mapped output.
     wire signed [7:0] dx_raw, dy_raw;
     
+    // Pre-gain map for drift detection
     cursor_map #(
         .DEAD(16'sd200),
         .GAIN(16'sd2),
@@ -131,32 +125,31 @@ module boreal_cursor_top_full (
     // 5. Adaptive Gain
     // =========================================================================
     wire signed [15:0] adaptive_gain;
-    wire left_click_for_gain;
+    reg left_click_pulse_r; // pulse from click detector
     
     cursor_adaptive_gain u_gain (
         .clk(clk),
         .rst_n(rst_n),
-        .click_success(left_click_for_gain),
+        .click_success(left_click_pulse_r),
         .dx(dx_raw),
         .dy(dy_raw),
         .gain_out(adaptive_gain)
     );
 
     // =========================================================================
-    // 6. Final Cursor Map (with adaptive gain applied)
+    // 6. Final Cursor Map
     // =========================================================================
-    // Scale corrected mu by adaptive gain before final mapping
-    wire signed [31:0] scaled_x = (mu_x_c * adaptive_gain) >>> 8; // Q8.8 gain
+    wire signed [31:0] scaled_x = (mu_x_c * adaptive_gain) >>> 8;
     wire signed [31:0] scaled_y = (mu_y_c * adaptive_gain) >>> 8;
-    wire signed [15:0] mu_x_final = (scaled_x > 16'sh7FFF) ? 16'sh7FFF :
-                                    (scaled_x < 16'sh8000) ? 16'sh8000 :
+    
+    wire signed [15:0] mu_x_final = (scaled_x > 32'sd32767) ? 16'sd32767 :
+                                    (scaled_x < -32'sd32768) ? -16'sd32768 :
                                     scaled_x[15:0];
-    wire signed [15:0] mu_y_final = (scaled_y > 16'sh7FFF) ? 16'sh7FFF :
-                                    (scaled_y < 16'sh8000) ? 16'sh8000 :
+    wire signed [15:0] mu_y_final = (scaled_y > 32'sd32767) ? 16'sd32767 :
+                                    (scaled_y < -32'sd32768) ? -16'sd32768 :
                                     scaled_y[15:0];
 
     wire signed [7:0] dx, dy;
-    
     cursor_map u_map_final (
         .clk(clk),
         .mx(mu_x_final),
@@ -167,45 +160,52 @@ module boreal_cursor_top_full (
     );
 
     // =========================================================================
-    // 7. Dwell / Click Detection
+    // 7. Click Detection & Latching
     // =========================================================================
-    wire left_click, right_click;
-    assign left_click_for_gain = left_click; // feedback to adaptive gain
-    
+    wire l_click_p, r_click_p;
+    reg left_btn, right_btn;
+
     dwell_click u_click (
         .clk(clk),
-        .rst_n(rst_n),
+        .rst(rst),
         .dx(dx),
         .dy(dy),
-        .tier(safety_tier),
-        .left_click(left_click),
-        .right_click(right_click)
+        .left_click_pulse(l_click_p),
+        .right_click_pulse(r_click_p)
     );
 
+    always @(posedge clk) begin
+        if (rst) begin
+            left_btn  <= 0;
+            right_btn <= 0;
+            left_click_pulse_r <= 0;
+        end else begin
+            left_click_pulse_r <= l_click_p;
+            if (l_click_p)  left_btn  <= ~left_btn;
+            if (r_click_p) right_btn <= ~right_btn;
+        end
+    end
+
     // =========================================================================
-    // 8a. UART TX Output (MCU Bridge)
+    // 8. Output Layers
     // =========================================================================
     cursor_uart_tx u_uart (
         .clk(clk),
-        .rst_n(rst_n),
-        .send_strobe(send_packet_strobe),
-        .right_click(right_click),
-        .left_click(left_click),
+        .rst(rst),
+        .send(send_packet_strobe),
+        .buttons({right_btn, left_btn}),
         .dx(dx),
         .dy(dy),
         .tx(uart_tx)
     );
 
-    // =========================================================================
-    // 8b. On-FPGA USB HID Output (Direct)
-    // =========================================================================
     boreal_usb_hid u_usb (
         .clk(clk),
         .rst_n(rst_n),
         .dx(dx),
         .dy(dy),
-        .left_click(left_click),
-        .right_click(right_click),
+        .left_click(left_btn),
+        .right_click(right_btn),
         .tier(safety_tier),
         .dp_out(usb_dp_out),
         .dn_out(usb_dn_out),

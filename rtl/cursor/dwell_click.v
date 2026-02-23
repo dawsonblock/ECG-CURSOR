@@ -1,45 +1,50 @@
-module dwell_click #(
-    parameter HOLD_CYCLES = 40_000_000, // ~400 ms @100 MHz
-    parameter SMALL       = 8'sd1,
-    parameter SPIKE_VAL   = 8'sd12,     // Higher threshold for right-click spike
-    parameter SPIKE_DUR   = 100_000     // Spike must disappear quickly (e.g. 1ms) to not be movement
-)(
+// dwell_click.v
+// Generates ONE-CYCLE pulses for left/right click
+
+module dwell_click(
     input  wire clk,
-    input  wire rst_n,
+    input  wire rst,
     input  wire signed [7:0] dx,
     input  wire signed [7:0] dy,
-    input  wire [1:0] tier,
-    output reg  left_click,
-    output reg  right_click
+    output reg  left_click_pulse,
+    output reg  right_click_pulse
 );
-    reg [31:0] hold_cnt;
-    reg [19:0] spike_timer;
 
-    wire small_motion = (dx <= SMALL && dx >= -SMALL && dy <= SMALL && dy >= -SMALL);
-    wire is_spike     = (dx > SPIKE_VAL || dy > SPIKE_VAL || dx < -SPIKE_VAL || dy < -SPIKE_VAL);
+    parameter HOLD_CYCLES = 20;
+    parameter SPIKE_THR   = 50;
+
+    reg [7:0] hold_cnt;
+    reg spike_prev;
+
+    wire stable = (dx == 0 && dy == 0);
+    wire spike  = (dx > SPIKE_THR || dx < -SPIKE_THR ||
+                   dy > SPIKE_THR || dy < -SPIKE_THR);
 
     always @(posedge clk) begin
-        if (!rst_n || tier >= 2) begin
-            hold_cnt <= 0; 
-            spike_timer <= 0;
-            left_click <= 0; 
-            right_click <= 0;
+        if (rst) begin
+            hold_cnt <= 0;
+            left_click_pulse <= 0;
+            right_click_pulse <= 0;
+            spike_prev <= 0;
         end else begin
-            // left click by dwell
-            if (small_motion) hold_cnt <= hold_cnt + 1;
-            else hold_cnt <= 0;
+            left_click_pulse <= 0;
+            right_click_pulse <= 0;
 
-            left_click <= (hold_cnt >= HOLD_CYCLES);
-
-            // Right click: Trigger on transition to spike then back to small_motion within 1ms
-            if (is_spike) begin
-                if (spike_timer < SPIKE_DUR) spike_timer <= spike_timer + 1;
-            end else if (spike_timer > 0) begin
-                right_click <= 1; // Success!
-                spike_timer <= 0;
+            // dwell → left click pulse
+            if (stable) begin
+                hold_cnt <= hold_cnt + 1;
+                if (hold_cnt == HOLD_CYCLES)
+                    left_click_pulse <= 1;
             end else begin
-                right_click <= 0;
+                hold_cnt <= 0;
             end
+
+            // spike release → right click pulse
+            if (spike_prev && !spike)
+                right_click_pulse <= 1;
+
+            spike_prev <= spike;
         end
     end
+
 endmodule

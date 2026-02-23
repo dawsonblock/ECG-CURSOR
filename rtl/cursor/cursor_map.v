@@ -4,6 +4,7 @@ module cursor_map #(
     parameter signed [7:0]  VMAX = 8'sd20
 )(
     input  wire clk,
+    input  wire rst_n,
     input  wire signed [15:0] mx,
     input  wire signed [15:0] my,
     input  wire [1:0] tier,
@@ -17,8 +18,11 @@ module cursor_map #(
         else clamp8 = v[7:0];
     endfunction
 
-    always @(posedge clk) begin
-        if (tier >= 2) begin 
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            dx <= 0;
+            dy <= 0;
+        end else if (tier >= 2) begin 
             dx <= 0; 
             dy <= 0; 
         end else begin
