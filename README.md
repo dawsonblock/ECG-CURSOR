@@ -70,4 +70,24 @@ make test
 
 ---
 
+## 🛠 Hardware Deployment
+
+The Boreal 2D Neuro-Core is optimized for the **Digilent Arty A7-100T** (Xilinx Artix-7 100T) research platform.
+
+### Standard Build Stack
+
+1. **FPGA**: Artix-7 100T (100MHz Fabric)
+2. **ADC**: ADS1299 (24-bit Clinical Front-End)
+3. **Bridge**: RP2040 (USB HID Interpreter)
+4. **Safety**: "Bite Switch" N.C. hardware interlock.
+
+### Implementation Guide
+
+For detailed wiring, pin constraints, and Bill of Materials, see:
+* [Bill of Materials](docs/hardware/bom.md)
+* [Arty A7 XDC Constraints](rtl/constraints/boreal_arty_a7.xdc)
+* [RP2040 Bridge Firmware](docs/reference/rp2040_bridge.c)
+
+---
+
 **Author**: Dawson Block & Antigravity (Advanced Agentic Architecture)
