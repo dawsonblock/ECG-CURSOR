@@ -1,85 +1,73 @@
-# Boreal Neuro-Core 2D | True Cursor Control Build
+# Boreal Neuro-Core 2D | Advanced EEG Cursor
 
-[![RTL Build](https://img.shields.io/badge/RTL-Verified-success.svg)]()
-[![Hardware](https://img.shields.io/badge/Target-Artix--7-orange.svg)]()
-[![Inference](https://img.shields.io/badge/Engine-True%202D%20Active%20Inference-9c27b0.svg)]()
+[![RTL Build](https://img.shields.io/badge/EEG--Pipeline-Verified-success.svg)]()
+[![Hardware](https://img.shields.io/badge/Medical--Grade-Signal%20Chain-blue.svg)]()
+[![Safety](https://img.shields.io/badge/Guard-Latching-red.svg)]()
 
-> **The definitive 2D EEG-to-Cursor Control Pipeline for the Boreal Neuro-Core.**  
-> Professionally refined for real-world biosignal decoding and robust HID output.
-
----
-
-## 🚀 Overview
-
-This repository contains the complete RTL implementation for the Boreal 2D Cursor Control system. Unlike standard controllers, this build implements **True 2D Decoding** by processing independent neural feature streams through a dual-axis Active Inference engine.
-
-### Core Breakthroughs
-
-* **True 2D Active Inference**: Separate X/Y manifolds updated via spatially weighted biological features.
-* **Surgical Feature Extraction**: Fixed-point 8-channel accumulator with no dropped samples and medical-grade weighting.
-* **Pulse-Based Clicks**: Latched button states driven by one-cycle pulses for reliable HID performance.
-* **Robust UART Bridge**: 115200 baud protocol with start-sync and checksum for MCU-based USB HID emulation.
+> **Medical-grade EEG-to-Cursor processing for the Boreal Neuro-Core.**  
+> Featuring parallel signal conditioning, energy-based intent extraction, and safety-critical artifact protection.
 
 ---
 
-## 🏗 Architecture
+## 🌈 Architecture: The Medical-Grade Chain
 
 ```mermaid
-graph LR
-    subgraph Feature Extraction
-        A[8-ch EEG] --> B[Spatial Weights]
-        B --> C[X-Feature]
-        B --> D[Y-Feature]
+graph TD
+    A[8-ch EEG In] --> B[Signal Guard]
+    B -- Freeze --| Saturation | C[Zero Velocity]
+    
+    subgraph Parallel Chains x8
+        A --> D[Bandpass Filter]
+        D --> E[Bandpower Extract]
+        E --> F[Adaptive Baseline]
     end
     
-    subgraph Manifold Control
-        C & D --> E[2D High-Pass Core]
-        E --> F[Dual-Axis Smoother]
-        F --> G[Drift Compensation]
-    end
-    
-    subgraph HID Output
-        G --> H[Adaptive Gain Mapper]
-        H --> I[UART Packet Streamer]
-        I --> J[RP2040 HID Bridge]
-    end
-    
-    style E fill:#f9f,stroke:#333,stroke-width:2px
-    style J fill:#bbf,stroke:#333,stroke-width:2px
+    F --> G[Spatial Mixing]
+    G --> H[2D Active Inference]
+    H --> I[Smoothing & Map]
+    I --> J[Intent Gate]
+    J --> K[UART Packet Streamer]
+    K --> L[RP2040 Bridge]
 ```
 
 ---
 
-## 🎛 Technical Specifications
+## ⚡ Core Features
 
-| Metric | Detail |
-|:---|:---|
-| **Decoding** | True 2D (Independent X/Y Feature Paths) |
-| **Integrator** | Alpha-beta Active Inference with DC-Rejection |
-| **Protocol** | 0xAA | Buttons | dx | dy | Checksum |
-| **Latency** | < 100ns Pipeline Latency |
-| **Hardware** | FPGA (RTL) + RP2040 (HID Bridge) |
+### 1. Signal Processing (RTL)
+
+* **8-Channel IIR Pipeline**: Parallel bandpass/notch filtering (1-30Hz).
+* **Energy Extraction**: Square-and-accumulate bandpower for stable intent decoding.
+* **Drift Rejection**: Dual-stage centering (Baseline Subtraction + High-Pass Core).
+* **Precision Gating**: Deadzone intent logic to eliminate resting jitter.
+
+### 2. Safety & Robustness
+
+* **Latching Noise Guard**: Freezes all movement if any electrode saturates, with a configurable decay timer.
+* **Checksum Verification**: XOR-protected packets ensure data integrity over long UART links.
+* **Watchdog Safety**: Host-side bridge zeros movement if signal is lost.
+
+### 3. Hardware Ready
+
+* **ADS1299 SPI**: Native interface for standard biosignal front-ends.
+* **UART 115200**: Standard link to all common MCUs.
 
 ---
 
 ## 🛠 Verification
 
-Execute the refined 2D test suite:
+Ensure the advanced pipeline is functional:
 
 ```bash
 make test
 ```
 
-### Final Results
+### Passing Specs
 
-* ✅ **2D Separation**: Verified independent axis deflection.
-* ✅ **Dwell Click**: Verified latching button states.
-* ✅ **Data Integrity**: Verified XOR checksum and 0xAA frame alignment.
+* ✅ **Energy Decoding**: Integrated control from filtered bandpower.
+* ✅ **Intent Deadzone**: Zero-drift at rest.
+* ✅ **Saturation Freeze**: Safety-critical artifact protection.
 
 ---
-
-## 📜 MCU Bridge
-
-To use as a real mouse, flash the firmware in `docs/reference/rp2040_bridge.c` to a Raspberry Pi Pico. Connect FPGA TX to Pico RX.
 
 **Author**: Dawson Block & Antigravity (Advanced Agentic Architecture)

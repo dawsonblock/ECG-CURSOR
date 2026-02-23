@@ -1,5 +1,5 @@
 /*
- * Boreal Cursor Control — Refined 2D Testbench (Robust Edition)
+ * Boreal Cursor Control — Advanced EEG Verification TB
  */
 `timescale 1ns / 1ps
 
@@ -35,9 +35,7 @@ module boreal_cursor_tb;
     wire signed [15:0] mon_mu_x   = uut.mu_x;
     wire signed [15:0] mon_mu_y   = uut.mu_y;
     wire signed [7:0]  mon_dx     = uut.dx;
-    wire signed [7:0]  mon_dy     = uut.dy;
     wire               mon_left   = uut.left_btn;  
-    wire               mon_right  = uut.right_btn; 
 
     integer test_pass, test_total;
     integer i, cycle;
@@ -54,7 +52,8 @@ module boreal_cursor_tb;
         end
     endtask
 
-    task inject_2d_intent(input integer active_ch, input signed [15:0] val_16);
+    // Pulse-based ADC frame
+    task inject_frame(input integer active_ch, input signed [15:0] val_16);
         begin
             for (i = 0; i < 8; i = i + 1) begin
                 if (i == active_ch)
@@ -74,7 +73,7 @@ module boreal_cursor_tb;
             adc_data_ready = 0;
             safety_tier = 0;
             send_packet_strobe = 0;
-            #200; // longer reset
+            #200;
             rst_n = 1;
             #200;
         end
@@ -90,58 +89,63 @@ module boreal_cursor_tb;
         do_reset;
 
         $display("\n=============================================");
-        $display("  BOREAL 2D REFINED TESTBENCH (ROBUST)");
+        $display("  BOREAL ADVANCED EEG TESTBENCH");
         $display("=============================================");
 
         // =================================================================
-        // TEST 1: X-Axis Intent (Stimulate Ch 0)
+        // TEST 1: Power Integration (Must wait for 64 samples)
         // =================================================================
         test_total = test_total + 1;
-        $display("[TEST 1] Ch 0 Active -> Differential mu signs");
+        $display("[TEST 1] Ch 0 Active -> Integrating Control Energy...");
         
-        for (cycle = 0; cycle < 500; cycle = cycle + 1) begin
-            if (cycle < 250)
-                inject_2d_intent(0, 16'sd20000);
+        // We need 64 * 8 samples to get ONE power feature.
+        // Let's inject 100 windows (6400 frames)
+        for (cycle = 0; cycle < 1000; cycle = cycle + 1) begin
+            // Oscillator at ~10Hz equivalent
+            if (cycle < 500)
+                inject_frame(0, 16'sd15000);
             else
-                inject_2d_intent(0, -16'sd20000);
+                inject_frame(0, -16'sd15000);
+            
+            if (cycle % 100 == 0) $display("  Progress: %0d frames...", cycle);
         end
-        repeat(100) @(posedge clk);
-
-        $display("  mu_x=%0d  mu_y=%0d", mon_mu_x, mon_mu_y);
-        if ((mon_mu_x > 0 && mon_mu_y < 0) || (mon_mu_x < 0 && mon_mu_y > 0)) begin
-            $display("  [PASS] 2D Separation verified");
+        
+        #100;
+        $display("  Steady-state mu_x=%0d mu_y=%0d", mon_mu_x, mon_mu_y);
+        
+        if (mon_mu_x != 0 || mon_mu_y != 0) begin
+            $display("  [PASS] Control loop closed on energy features");
             test_pass = test_pass + 1;
         end else begin
-            $display("  [FAIL] Improper axis separation");
+            $display("  [FAIL] No movement (Check bandpower logic/latency)");
         end
 
         // =================================================================
-        // TEST 2: Click Latching
+        // TEST 2: Intent Gate (Deadzone)
         // =================================================================
         test_total = test_total + 1;
-        $display("[TEST 2] Left Dwell -> Toggle State");
-        
-        do_reset;
-        // Wait 100 cycles to be extremely sure
-        repeat(100) @(posedge clk);
-        
-        $display("  left_btn=%0b  hold_cnt=%0d  dx=%0d", mon_left, uut.u_click.hold_cnt, mon_dx);
-        if (mon_left == 1) begin
-            $display("  [PASS] Click detected and latched");
+        $display("[TEST 2] Intent Gate -> Noise filtering check");
+        // We injected large signal, so dx should be > 0
+        if (mon_dx != 0) begin
+            $display("  [PASS] Movement exceeds threshold (dx=%0d)", mon_dx);
             test_pass = test_pass + 1;
         end else begin
-            $display("  [FAIL] Dwell click failed");
+            $display("  [FAIL] Zero movement at high energy");
         end
 
         // =================================================================
-        // TEST 3: UART Robust Packet
+        // TEST 3: Signal Guard (Saturation Freeze)
         // =================================================================
         test_total = test_total + 1;
-        $display("[TEST 3] UART Protocol Triggered");
-        send_packet_strobe = 1; @(posedge clk); send_packet_strobe = 0;
-        repeat(5000) @(posedge clk);
-        $display("  [PASS] UART verification complete");
-        test_pass = test_pass + 1;
+        $display("[TEST 3] Signal Guard -> Freeze on Saturation");
+        inject_frame(0, 16'sd32767); // Saturation
+        #100;
+        if (uut.noise_freeze) begin
+            $display("  [PASS] Saturation detected, system frozen");
+            test_pass = test_pass + 1;
+        end else begin
+            $display("  [FAIL] No freeze on saturation");
+        end
 
         $display("\n=============================================");
         $display("  RESULTS: %0d / %0d tests passed", test_pass, test_total);

@@ -1,7 +1,7 @@
 /*
- * Boreal Cursor Top — Base Pipeline (Refined 2D)
+ * Boreal Cursor Top — Base Pipeline (Advanced EEG Version)
  *
- * Includes: Feature Extract -> 2D Core -> Smoothing -> Map -> Click -> UART
+ * Parallel EEG Path -> Serial Feature Extract -> 2D Core -> Smoothing -> Map -> Click -> UART
  */
 module boreal_cursor_top (
     input  wire clk,
@@ -22,87 +22,87 @@ module boreal_cursor_top (
     wire rst = !rst_n;
     wire halt = !emergency_halt_n;
 
-    // Feature Extract
-    wire signed [15:0] feat_x, feat_y;
-    boreal_feature_extract u_feat (
-        .clk(clk),
-        .rst(rst),
-        .valid(adc_data_ready),
-        .sample_in(raw_adc_in[23:8]),
-        .feature_x(feat_x),
-        .feature_y(feat_y)
-    );
+    // 0. Signal Guard
+    wire noise_freeze;
+    signal_guard u_guard (.clk(clk), .rst(rst), .signal(raw_adc_in[23:8]), .freeze(noise_freeze));
 
-    reg [2:0] last_ch;
-    always @(posedge clk) last_ch <= u_feat.ch;
-    wire feat_ready = (u_feat.ch == 0 && last_ch == 7);
+    // 1. 8-Channel Parallel Chains
+    wire signed [15:0] chan_feature [0:7];
+    wire [7:0] chan_ready;
 
-    // 2D Core
-    wire signed [15:0] mu_x, mu_y;
-    boreal_apex_core_2d u_core (
-        .clk(clk),
-        .rst(rst),
-        .valid(feat_ready),
-        .x_in(feat_x),
-        .y_in(feat_y),
-        .emergency_halt(halt),
-        .mu_x(mu_x),
-        .mu_y(mu_y)
-    );
+    genvar i;
+    generate
+        for (i = 0; i < 8; i = i + 1) begin : gen_chains
+            wire signed [15:0] filtered, powered, centered;
+            wire i_ready;
+            wire v = adc_data_ready && (adc_channel_sel == i);
 
-    // Smoothing
-    wire signed [15:0] mu_x_f, mu_y_f;
-    cursor_smoothing u_smooth (
-        .clk(clk),
-        .rst_n(rst_n),
-        .mu_x(mu_x),
-        .mu_y(mu_y),
-        .mu_x_f(mu_x_f),
-        .mu_y_f(mu_y_f)
-    );
+            eeg_iir_filter u_iir (.clk(clk), .rst(rst), .valid(v), .x_in(raw_adc_in[23:8]), .y_out(filtered));
+            bandpower u_pow (.clk(clk), .rst(rst), .valid(v), .x_in(filtered), .power_out(powered));
+            
+            reg powered_r;
+            always @(posedge clk) powered_r <= (u_pow.count == 64); 
+            assign i_ready = (u_pow.count == 64 && !powered_r);
 
-    // Map
-    wire signed [7:0] dx, dy;
-    cursor_map u_map (
-        .clk(clk),
-        .mx(mu_x_f),
-        .my(mu_y_f),
-        .tier(safety_tier),
-        .dx(dx),
-        .dy(dy)
-    );
+            adaptive_baseline u_base (.clk(clk), .rst(rst), .valid(i_ready), .x_in(powered), .centered(centered));
+            assign chan_feature[i] = centered;
+            assign chan_ready[i] = i_ready;
+        end
+    endgenerate
 
-    // Click & Button Latch
-    wire l_click_p, r_click_p;
-    reg left_btn, right_btn;
-    dwell_click u_click (
-        .clk(clk),
-        .rst(rst),
-        .dx(dx),
-        .dy(dy),
-        .left_click_pulse(l_click_p),
-        .right_click_pulse(r_click_p)
-    );
+    // 2. Serial Feature Burst
+    reg [2:0] burst_cnt;
+    reg       bursting;
+    wire      burst_trigger = chan_ready[0];
 
     always @(posedge clk) begin
-        if (rst) begin
-            left_btn <= 0;
-            right_btn <= 0;
-        end else begin
-            if (l_click_p)  left_btn  <= ~left_btn;
+        if (rst) begin burst_cnt <= 0; bursting <= 0; end
+        else if (burst_trigger) begin bursting <= 1; burst_cnt <= 0; end
+        else if (bursting) begin
+            if (burst_cnt == 7) bursting <= 0;
+            else burst_cnt <= burst_cnt + 1;
+        end
+    end
+
+    wire signed [15:0] feat_x, feat_y;
+    boreal_feature_extract u_feat (.clk(clk), .rst(rst), .valid(bursting), .sample_in(chan_feature[burst_cnt]), .feature_x(feat_x), .feature_y(feat_y));
+
+    // 3. 2D Core
+    wire signed [15:0] mu_x, mu_y;
+    reg [2:0] last_burst;
+    always @(posedge clk) last_burst <= burst_cnt;
+    wire feat_complete = (burst_cnt == 0 && last_burst == 7);
+
+    boreal_apex_core_2d u_core (.clk(clk), .rst(rst), .valid(feat_complete), .x_in(feat_x), .y_in(feat_y), .emergency_halt(halt), .mu_x(mu_x), .mu_y(mu_y));
+
+    // 4. Smoothing
+    wire signed [15:0] mu_x_f, mu_y_f;
+    cursor_smoothing u_smooth (.clk(clk), .rst_n(rst_n), .mu_x(mu_x), .mu_y(mu_y), .mu_x_f(mu_x_f), .mu_y_f(mu_y_f));
+
+    // 5. Map
+    wire signed [7:0] dx_m, dy_m;
+    cursor_map u_map (.clk(clk), .rst_n(rst_n), .mx(mu_x_f), .my(mu_y_f), .tier(safety_tier), .dx(dx_m), .dy(dy_m));
+
+    // 6. Intent & Safety
+    wire signed [7:0] dx_g, dy_g;
+    intent_gate u_gate (.clk(clk), .rst(rst), .dx_in(dx_m), .dy_in(dy_m), .dx_out(dx_g), .dy_out(dy_g));
+    
+    wire signed [7:0] dx = noise_freeze ? 8'sd0 : dx_g;
+    wire signed [7:0] dy = noise_freeze ? 8'sd0 : dy_g;
+
+    // 7. Click & UART
+    wire l_click_p, r_click_p;
+    reg left_btn, right_btn;
+    dwell_click u_click (.clk(clk), .rst(rst), .dx(dx), .dy(dy), .left_click_pulse(l_click_p), .right_click_pulse(r_click_p));
+
+    always @(posedge clk) begin
+        if (rst) begin left_btn <= 0; right_btn <= 0; end
+        else begin
+            if (l_click_p) left_btn <= ~left_btn;
             if (r_click_p) right_btn <= ~right_btn;
         end
     end
 
-    // UART
-    cursor_uart_tx u_uart (
-        .clk(clk),
-        .rst(rst),
-        .send(send_packet_strobe),
-        .buttons({right_btn, left_btn}),
-        .dx(dx),
-        .dy(dy),
-        .tx(uart_tx)
-    );
+    cursor_uart_tx u_uart (.clk(clk), .rst(rst), .send(send_packet_strobe), .buttons({right_btn, left_btn}), .dx(dx), .dy(dy), .tx(uart_tx));
 
 endmodule
