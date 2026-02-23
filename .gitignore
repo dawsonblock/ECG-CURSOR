@@ -1,0 +1,6 @@
+# Build artifacts
+build/
+*.vcd
+
+# OS files
+.DS_Store
