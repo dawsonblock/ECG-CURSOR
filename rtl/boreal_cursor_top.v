@@ -27,8 +27,8 @@ module boreal_cursor_top (
     signal_guard u_guard (.clk(clk), .rst(rst), .signal(raw_adc_in[23:8]), .freeze(noise_freeze));
 
     // 1. 8-Channel Parallel Chains
-    wire signed [15:0] chan_feature [0:7];
-    wire [7:0] chan_ready;
+    wire [127:0] chan_features_flat;
+    wire [7:0]   chan_ready;
 
     genvar i;
     generate
@@ -45,7 +45,7 @@ module boreal_cursor_top (
             assign i_ready = (u_pow.count == 64 && !powered_r);
 
             adaptive_baseline u_base (.clk(clk), .rst(rst), .valid(i_ready), .x_in(powered), .centered(centered));
-            assign chan_feature[i] = centered;
+            assign chan_features_flat[i*16 +: 16] = centered;
             assign chan_ready[i] = i_ready;
         end
     endgenerate
@@ -64,8 +64,9 @@ module boreal_cursor_top (
         end
     end
 
+    wire signed [15:0] mux_feat = chan_features_flat[burst_cnt*16 +: 16];
     wire signed [15:0] feat_x, feat_y;
-    boreal_feature_extract u_feat (.clk(clk), .rst(rst), .valid(bursting), .sample_in(chan_feature[burst_cnt]), .feature_x(feat_x), .feature_y(feat_y));
+    boreal_feature_extract u_feat (.clk(clk), .rst(rst), .valid(bursting), .sample_in(mux_feat), .feature_x(feat_x), .feature_y(feat_y));
 
     // 3. 2D Core
     wire signed [15:0] mu_x, mu_y;

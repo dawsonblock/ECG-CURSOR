@@ -1,14 +1,11 @@
 /*
- * RP2040 UART-to-USB-HID Mouse Bridge Firmware (v2.0)
- *
- * Improvements:
- * - Exponential Moving Average (EMA) smoothing for jitter reduction.
- * - Packet Watchdog: Zeros movement if FPGA stops sending data.
+ * RP2040 UART-to-USB-HID Mouse Bridge Firmware (v2.0 - Fixed Headers)
  */
 
 #include "hardware/uart.h"
 #include "pico/stdlib.h"
 #include "tusb.h"
+#include <stdbool.h>
 #include <stdint.h>
 
 #define UART_ID uart0
@@ -16,6 +13,8 @@
 #define UART_TX_PIN 0
 #define UART_RX_PIN 1
 #define PACKET_SIZE 5
+
+#define REPORT_ID_MOUSE 1
 
 uint8_t packet[PACKET_SIZE];
 uint8_t idx = 0;
@@ -68,7 +67,6 @@ int main() {
     }
 
     // --- Packet Watchdog ---
-    // If no valid packet in 500ms, zero out movement to prevent runaway
     if (to_ms_since_boot(get_absolute_time()) - last_packet_time > 500) {
       if (tud_hid_ready()) {
         tud_hid_mouse_report(REPORT_ID_MOUSE, 0, 0, 0, 0, 0);

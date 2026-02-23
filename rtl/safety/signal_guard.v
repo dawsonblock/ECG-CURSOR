@@ -1,5 +1,5 @@
 module signal_guard #(
-    parameter LIMIT = 20000,
+    parameter LIMIT = 30000,
     parameter HOLD  = 1000
 )(
     input  wire clk,

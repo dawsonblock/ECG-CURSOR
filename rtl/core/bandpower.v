@@ -6,7 +6,7 @@ module bandpower(
     output reg  signed [15:0] power_out
 );
 
-reg signed [31:0] acc;
+reg signed [47:0] acc;
 reg [7:0] count;
 
 always @(posedge clk) begin
@@ -19,7 +19,7 @@ always @(posedge clk) begin
         count <= count + 1;
 
         if (count == 64) begin
-            power_out <= acc[23:8];
+            power_out <= acc[27:12]; // High-sensitivity slice for neural manifolds
             acc <= 0;
             count <= 0;
         end

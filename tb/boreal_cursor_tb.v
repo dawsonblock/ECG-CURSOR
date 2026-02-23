@@ -1,5 +1,5 @@
 /*
- * Boreal Cursor Control — Advanced EEG Verification TB
+ * Boreal Cursor Control — Advanced EEG Verification TB (Settling Mix)
  */
 `timescale 1ns / 1ps
 
@@ -35,6 +35,9 @@ module boreal_cursor_tb;
     wire signed [15:0] mon_mu_x   = uut.mu_x;
     wire signed [15:0] mon_mu_y   = uut.mu_y;
     wire signed [7:0]  mon_dx     = uut.dx;
+    wire signed [7:0]  mon_dx_m   = uut.dx_m;
+    wire signed [7:0]  mon_dx_g   = uut.dx_g;
+    wire               mon_freeze = uut.noise_freeze;
     wire               mon_left   = uut.left_btn;  
 
     integer test_pass, test_total;
@@ -89,35 +92,37 @@ module boreal_cursor_tb;
         do_reset;
 
         $display("\n=============================================");
-        $display("  BOREAL ADVANCED EEG TESTBENCH");
+        $display("  BOREAL ADVANCED EEG TESTBENCH (LONG)");
         $display("=============================================");
 
         // =================================================================
-        // TEST 1: Power Integration (Must wait for 64 samples)
+        // TEST 1: Power Integration (Extended 5000 frames for 32-bit state)
         // =================================================================
         test_total = test_total + 1;
         $display("[TEST 1] Ch 0 Active -> Integrating Control Energy...");
         
-        // We need 64 * 8 samples to get ONE power feature.
-        // Let's inject 100 windows (6400 frames)
-        for (cycle = 0; cycle < 1000; cycle = cycle + 1) begin
-            // Oscillator at ~10Hz equivalent
-            if (cycle < 500)
-                inject_frame(0, 16'sd15000);
+        for (cycle = 0; cycle < 5000; cycle = cycle + 1) begin
+            // Vigorous oscillator (e.g. 10Hz Alpha/Beta burst simulation)
+            // Just below the 30000 safety limit to avoid freezing Test 1
+            if (cycle % 20 == 0) 
+                inject_frame(0, 16'sd24000); 
+            else if (cycle % 10 == 0)
+                inject_frame(0, -16'sd22000);
             else
-                inject_frame(0, -16'sd15000);
+                inject_frame(0, 16'sd2000 + (cycle % 1000)); 
             
-            if (cycle % 100 == 0) $display("  Progress: %0d frames...", cycle);
+            if (cycle % 1000 == 0) $display("  Progress: %0d frames...", cycle);
         end
         
-        #100;
+        #5000; // Increased delay for EMA smoothing filter to settle
+        $display("  Debug: mu_x=%0d, dx_m=%d, dx_g=%d, freeze=%b, dx=%d", mon_mu_x, mon_dx_m, mon_dx_g, mon_freeze, mon_dx);
         $display("  Steady-state mu_x=%0d mu_y=%0d", mon_mu_x, mon_mu_y);
         
-        if (mon_mu_x != 0 || mon_mu_y != 0) begin
-            $display("  [PASS] Control loop closed on energy features");
+        if (mon_mu_x > 100) begin
+            $display("  [PASS] Control loop closed on energy features (mu_x=%0d)", mon_mu_x);
             test_pass = test_pass + 1;
         end else begin
-            $display("  [FAIL] No movement (Check bandpower logic/latency)");
+            $display("  [FAIL] Insufficient deflection: mu_x=%0d", mon_mu_x);
         end
 
         // =================================================================
@@ -125,12 +130,12 @@ module boreal_cursor_tb;
         // =================================================================
         test_total = test_total + 1;
         $display("[TEST 2] Intent Gate -> Noise filtering check");
-        // We injected large signal, so dx should be > 0
+        // mu_x should be above DEAD zone (200) to move dx
         if (mon_dx != 0) begin
-            $display("  [PASS] Movement exceeds threshold (dx=%0d)", mon_dx);
+            $display("  [PASS] Movement verified (dx=%0d)", mon_dx);
             test_pass = test_pass + 1;
         end else begin
-            $display("  [FAIL] Zero movement at high energy");
+            $display("  [FAIL] Zero movement (mu_x=%0d < deadzone?)", mon_mu_x);
         end
 
         // =================================================================

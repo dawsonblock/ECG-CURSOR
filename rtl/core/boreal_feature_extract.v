@@ -20,12 +20,12 @@ module boreal_feature_extract #(
     integer i;
 
     initial begin
-        // simple orthogonal pattern (placeholder)
-        wx[0]= 10; wx[1]=  8; wx[2]=  6; wx[3]=  4;
-        wx[4]= -4; wx[5]= -6; wx[6]= -8; wx[7]=-10;
+        // high-spec orthogonal pattern
+        wx[0]= 32; wx[1]= 24; wx[2]= 16; wx[3]=  8;
+        wx[4]=-08; wx[5]=-16; wx[6]=-24; wx[7]=-32;
 
-        wy[0]= -4; wy[1]= -2; wy[2]=  2; wy[3]=  4;
-        wy[4]= 10; wy[5]=  8; wy[6]= -8; wy[7]=-10;
+        wy[0]= -8; wy[1]=-16; wy[2]=-24; wy[3]=-32;
+        wy[4]= 32; wy[5]= 24; wy[6]= 16; wy[7]=  8;
     end
 
     reg [2:0] ch;
