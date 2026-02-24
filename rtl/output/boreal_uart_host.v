@@ -5,7 +5,7 @@
  * Implements full [0xAA][CMD][ADDR_H][ADDR_L][DATA_H][DATA_L][CRC] decoder.
  */
 module boreal_uart_host #(
-    parameter CLK_FREQ  = 100_000_000,
+    parameter CLK_FREQ  = 50_000_000,
     parameter BAUD_RATE = 115_200
 )(
     input  wire        clk,

@@ -55,6 +55,31 @@ module boreal_neuro_v3_top (
     wire signed [23:0] vx_pred, vy_pred;
     wire         intent_click;
 
+    // MMIO Bus
+    wire        mmio_we;
+    wire [9:0]  mmio_addr;
+    wire [31:0] mmio_din;
+    wire [31:0] mmio_dout;
+
+    // Predictive Cursor Parameters (MMIO 0x400x)
+    reg [15:0] k1_gain_reg = 16'h4000;
+    reg [15:0] k2_gain_reg = 16'h1000;
+    reg [7:0]  deadzone_reg = 8'd4;
+
+    always @(posedge clk_50m) begin
+        if (!rst_n) begin
+            k1_gain_reg <= 16'h4000;
+            k2_gain_reg <= 16'h1000;
+            deadzone_reg <= 8'd4;
+        end else if (mmio_we) begin
+            case (mmio_addr)
+                10'h00C: k1_gain_reg <= mmio_din[15:0];
+                10'h00D: k2_gain_reg <= mmio_din[15:0];
+                10'h00E: deadzone_reg <= mmio_din[7:0];
+            endcase
+        end
+    end
+
     // 1. ADC SPI
     ads1299_spi adc (
         .clk(clk_50m), .rst(!rst_n),
@@ -112,11 +137,14 @@ module boreal_neuro_v3_top (
         .host_we(1'b0) // Placeholder for host matrix injection
     );
 
-    // 7. Predictive Cursor (Latency Compensation)
+    // 7. Predictive Cursor (Latency Compensation - 2nd Order State-Space)
     boreal_predictive_cursor pred (
         .clk(clk_50m), .rst(!rst_n),
         .valid(proj_valid),
         .vx_in(ux_proj), .vy_in(uy_proj),
+        .k1_gain(k1_gain_reg),
+        .k2_gain(k2_gain_reg),
+        .deadzone(deadzone_reg),
         .vx_pred(vx_pred), .vy_pred(vy_pred)
     );
 
@@ -174,5 +202,15 @@ module boreal_neuro_v3_top (
             if (adc_valid && ch == 7) frame_id <= frame_id + 1;
         end
     end
+
+    // 12. MMIO UART Host
+    boreal_uart_host host (
+        .clk(clk_50m), .rst_n(rst_n),
+        .rx(uart_rx), .tx(uart_tx),
+        .mem_we(mmio_we),
+        .mem_addr(mmio_addr),
+        .mem_din(mmio_din),
+        .mem_dout(mmio_dout)
+    );
 
 endmodule
