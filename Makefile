@@ -28,26 +28,28 @@ RTL_FILES = rtl/core/boreal_memory.v \
             rtl/safety/boreal_artifact_monitor.v \
             rtl/safety/boreal_safety_tiers.v \
             rtl/safety/boreal_watchdog.v \
-            rtl/boreal_neuro_v3_top.v
+            rtl/top/boreal_neuro_v3_top.v
 
 TB_FILES = tb/boreal_v3_tb.v
+BUILD_DIR = build
 
 .PHONY: all test lint clean docker
 
 all: test
 
-test: boreal_v3_instrument
-	$(VVP) boreal_v3_instrument
+test: $(BUILD_DIR)/boreal_v3_instrument
+	cd $(BUILD_DIR) && ./boreal_v3_instrument
 
-boreal_v3_instrument: $(RTL_FILES) $(TB_FILES)
-	$(IVERILOG) -g2012 -o boreal_v3_instrument $(RTL_FILES) $(TB_FILES)
+$(BUILD_DIR)/boreal_v3_instrument: $(RTL_FILES) $(TB_FILES)
+	mkdir -p $(BUILD_DIR)
+	$(IVERILOG) -g2012 -o $(BUILD_DIR)/boreal_v3_instrument $(RTL_FILES) $(TB_FILES)
 
 lint:
-	$(VERILATOR) --lint-only -Irtl/core -Irtl/cursor -Irtl/io -Irtl/output -Irtl/safety rtl/boreal_neuro_v3_top.v
+	$(VERILATOR) --lint-only -Irtl/core -Irtl/cursor -Irtl/io -Irtl/output -Irtl/safety -Irtl/top rtl/top/boreal_neuro_v3_top.v
 
 docker:
 	docker build -t boreal-v3 .
 	docker run --rm boreal-v3
 
 clean:
-	rm -f boreal_v3_instrument boreal_v3.vcd
+	rm -rf $(BUILD_DIR)
