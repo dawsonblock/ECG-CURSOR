@@ -14,9 +14,16 @@ RTL_FILES = rtl/core/boreal_memory.v \
             rtl/core/boreal_apex_core_v3.v \
             rtl/core/boreal_biquad.v \
             rtl/core/calibration_controller.v \
+            rtl/core/boreal_adaptive_norm.v \
+            rtl/core/boreal_spatial_filter.v \
+            rtl/core/boreal_intent_classifier.v \
+            rtl/core/boreal_envelope_ema.v \
+            rtl/core/boreal_spectral_cube.v \
             rtl/cursor/boreal_velocity_pwm.v \
+            rtl/cursor/boreal_predictive_cursor.v \
             rtl/output/boreal_uart_host.v \
             rtl/output/cursor_uart_tx.v \
+            rtl/output/usb_hid_report.v \
             rtl/io/ads1299_spi.v \
             rtl/safety/boreal_artifact_monitor.v \
             rtl/safety/boreal_safety_tiers.v \
