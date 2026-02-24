@@ -23,10 +23,10 @@ module boreal_v3_tb;
     always #10 clk_50m = ~clk_50m;
 
     // --- Procedural Safety Checks (Formal Safety Replacement) ---
-    // 1. Motion Lock: If Tier 3 (Halt), dx/dy must be 0
+    // 1. Motion Lock: If Tier 3 (Halt), intent x/y must be 0
     always @(posedge clk_50m) begin
         if (uut.safety_tier == 2'd3) begin
-            if (uut.vx_pred != 0 || uut.vy_pred != 0) begin
+            if (uut.intent_x != 0 || uut.intent_y != 0) begin
                 $display("CRITICAL ERROR: Motion Lock Violation in Tier 3!");
                 $finish;
             end
