@@ -71,8 +71,8 @@ module cursor_uart_tx #(
             packet[2] <= dx;
             packet[3] <= dy;
             packet[4] <= frame_id;
-            // Using XOR for reliability across all synthesis tools, but fixed race
-            packet[5] <= vbs ^ dx ^ dy ^ frame_id; 
+            // Formal CRC8 calculation over bytes 1 to 4
+            packet[5] <= crc8({vbs, dx, dy, frame_id, 8'h00}); 
 
             byte_idx <= 0;
             bit_idx <= 0;
