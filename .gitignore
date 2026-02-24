@@ -1,6 +1,10 @@
 # Build artifacts
 build/
 *.vcd
+boreal_v3_sim
+boreal_v3_refined
+boreal_cursor_sim
+boreal_full_sim
 
 # OS files
 .DS_Store
