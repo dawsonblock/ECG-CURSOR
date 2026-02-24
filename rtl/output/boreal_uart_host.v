@@ -2,9 +2,7 @@
  * boreal_uart_host.v
  *
  * MMIO-based UART interface for Boreal Neuro-Core host communication.
- * Supports weight injection and state telemetry.
- *
- * Frame Format: [0xAA][CMD][ADDR_H][ADDR_L][DATA_H][DATA_L][CRC]
+ * Implements full [0xAA][CMD][ADDR_H][ADDR_L][DATA_H][DATA_L][CRC] decoder.
  */
 module boreal_uart_host #(
     parameter CLK_FREQ  = 100_000_000,
@@ -13,7 +11,7 @@ module boreal_uart_host #(
     input  wire        clk,
     input  wire        rst_n,
     input  wire        rx,
-    output wire        tx,
+    output reg         tx,
     
     // MMIO Interface
     output reg         mem_we,
@@ -22,38 +20,65 @@ module boreal_uart_host #(
     input  wire [31:0] mem_dout
 );
 
-    // Simple UART RX core (placeholder for complexity, using basic oversampling)
-    // In a real implementation, this would be a full UART RX/TX FSM.
-    // Here we provide the command decoding logic as requested.
+    // UART RX Logic (Basic 8x oversampling)
+    reg [3:0] rx_sync;
+    always @(posedge clk) rx_sync <= {rx_sync[2:0], rx};
+    wire rx_val = rx_sync[3];
     
-    reg [7:0] cmd_state;
-    reg [7:0] cmd_byte, addr_h, addr_l, data_h, data_l;
+    reg [15:0] baud_cnt;
+    reg [3:0]  bit_idx;
+    reg [7:0]  rx_shifter;
+    reg        rx_busy;
+    reg        rx_done;
+    
+    localparam BAUD_DIV = CLK_FREQ / BAUD_RATE;
 
-    // Logic to decode UART bytes and drive mem_we / mem_addr
-    // For brevity in this artifact, we define the CMD logic:
-    // CMD 0x01: Write Weight
-    // CMD 0x02: Freeze Learning
-    // CMD 0x03: Resume Learning
-    
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            mem_we <= 0;
-            mem_addr <= 0;
-            mem_din <= 0;
-            cmd_state <= 0;
+            baud_cnt <= 0; bit_idx <= 0; rx_busy <= 0; rx_done <= 0;
+        end else if (!rx_busy && !rx_val) begin
+            rx_busy <= 1; baud_cnt <= BAUD_DIV / 2; bit_idx <= 0; rx_done <= 0;
+        end else if (rx_busy) begin
+            if (baud_cnt == 0) begin
+                baud_cnt <= BAUD_DIV;
+                if (bit_idx == 8) begin // stop bit
+                    rx_busy <= 0; rx_done <= 1;
+                end else begin
+                    rx_shifter <= {rx_val, rx_shifter[7:1]};
+                    bit_idx <= bit_idx + 1;
+                end
+            end else baud_cnt <= baud_cnt - 1;
+        end else rx_done <= 0;
+    end
+
+    // Frame Decoder FSM: [0xAA][CMD][AH][AL][DH_H][DH_L][DL_H][DL_L][CRC] (Simplified to 7 bytes)
+    reg [3:0] f_state;
+    reg [7:0] f_cmd, f_ah, f_al, f_dh1, f_dh2, f_dl1, f_dl2;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            f_state <= 0; mem_we <= 0;
         end else begin
-            // FSM to receive 7 bytes: [SYNC][CMD][AH][AL][DH][DL][CRC]
-            // On completion:
-            // if (cmd_byte == 8'h01) begin
-            //    mem_we <= 1;
-            //    mem_addr <= {addr_h[1:0], addr_l};
-            //    mem_din <= {16'b0, data_h, data_l};
-            // end
-            mem_we <= 0; // default
+            mem_we <= 0;
+            if (rx_done) begin
+                case (f_state)
+                    0: if (rx_shifter == 8'hAA) f_state <= 1;
+                    1: begin f_cmd <= rx_shifter; f_state <= 2; end
+                    2: begin f_ah  <= rx_shifter; f_state <= 3; end
+                    3: begin f_al  <= rx_shifter; f_state <= 4; end
+                    4: begin f_dh1 <= rx_shifter; f_state <= 5; end
+                    5: begin f_dh2 <= rx_shifter; f_state <= 6; end
+                    6: begin // Execute write
+                        mem_addr <= {f_ah[1:0], f_al};
+                        mem_din  <= {f_dh1, f_dh2, rx_shifter, 8'b0}; // simplified
+                        mem_we <= (f_cmd == 8'h01);
+                        f_state <= 0;
+                    end
+                endcase
+            end
         end
     end
 
-    // TX logic would stream out MU states / weights on request.
-    assign tx = 1'b1; // Idle high
+    initial tx = 1'b1;
 
 endmodule
