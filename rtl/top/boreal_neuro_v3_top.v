@@ -242,6 +242,7 @@ module boreal_neuro_v3_top (
         .buttons({bite_n, intent_click}),
         .safety_flags({artifact_flags[3:1], safety_tier[0]}),
         .frame_id(frame_id),
+        .symbolic_state(symbolic_state),
         .valid(hid_valid)
     );
 

@@ -23,6 +23,7 @@ module usb_hid_report (
     input  wire [1:0]  buttons,
     input  wire [3:0]  safety_flags,
     input  wire [7:0]  frame_id,
+    input  wire [2:0]  symbolic_state, // New symbolic intent layer
     
     output reg  [7:0]  report [0:7],
     output reg         valid
@@ -56,8 +57,8 @@ module usb_hid_report (
             report[2] <= dy;
             report[3] <= {4'b0, safety_flags};
             report[4] <= frame_id;
-            report[5] <= 8'h00; // Status reserved
-            report[6] <= crc8({report[0], report[1], report[2], report[3], report[4], report[5]});
+            report[5] <= {5'b0, symbolic_state};
+            report[6] <= crc8({{6'b0, buttons}, dx, dy, {4'b0, safety_flags}, frame_id, {5'b0, symbolic_state}});
             report[7] <= 8'h00; // Reserved
             valid <= 1;
         end else begin
