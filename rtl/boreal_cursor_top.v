@@ -28,7 +28,7 @@ module boreal_cursor_top (
 
     // 1. 8-Channel Parallel Chains
     wire [127:0] chan_features_flat;
-    wire [7:0]   chan_ready;
+    wire [7:0]   chan_done_all;
 
     genvar i;
     generate
@@ -46,14 +46,18 @@ module boreal_cursor_top (
 
             adaptive_baseline u_base (.clk(clk), .rst(rst), .valid(i_ready), .x_in(powered), .centered(centered));
             assign chan_features_flat[i*16 +: 16] = centered;
-            assign chan_ready[i] = i_ready;
+            assign chan_done_all[i] = i_ready;
         end
     endgenerate
+
+    // Frame Sync Barrier
+    wire frame_ready;
+    channel_frame_sync u_sync (.clk(clk), .rst(rst), .chan_done(chan_done_all), .frame_ready(frame_ready));
 
     // 2. Serial Feature Burst
     reg [2:0] burst_cnt;
     reg       bursting;
-    wire      burst_trigger = chan_ready[0];
+    wire      burst_trigger = frame_ready;
 
     always @(posedge clk) begin
         if (rst) begin burst_cnt <= 0; bursting <= 0; end
@@ -92,18 +96,9 @@ module boreal_cursor_top (
     wire signed [7:0] dy = noise_freeze ? 8'sd0 : dy_g;
 
     // 7. Click & UART
-    wire l_click_p, r_click_p;
-    reg left_btn, right_btn;
-    dwell_click u_click (.clk(clk), .rst(rst), .dx(dx), .dy(dy), .left_click_pulse(l_click_p), .right_click_pulse(r_click_p));
+    wire left_state, right_state;
+    dwell_click u_click (.clk(clk), .rst(rst), .dx(dx), .dy(dy), .left_btn_state(left_state), .right_btn_state(right_state));
 
-    always @(posedge clk) begin
-        if (rst) begin left_btn <= 0; right_btn <= 0; end
-        else begin
-            if (l_click_p) left_btn <= ~left_btn;
-            if (r_click_p) right_btn <= ~right_btn;
-        end
-    end
-
-    cursor_uart_tx u_uart (.clk(clk), .rst(rst), .send(send_packet_strobe), .buttons({right_btn, left_btn}), .dx(dx), .dy(dy), .tx(uart_tx));
+    cursor_uart_tx u_uart (.clk(clk), .rst(rst), .send(send_packet_strobe), .buttons({right_state, left_state}), .dx(dx), .dy(dy), .tx(uart_tx));
 
 endmodule

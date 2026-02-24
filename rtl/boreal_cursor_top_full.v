@@ -23,9 +23,11 @@ module boreal_cursor_top_full (
     input  wire [1:0]  safety_tier,
     input  wire        send_packet_strobe,
     input  wire        recenter_pulse,
+    input  wire        start_calibration,
 
     // UART OUT (Robust 0xAA Format)
     output wire uart_tx,
+    output wire [31:0] cycle_count_debug,
     
     // USB HID OUT (Note: Placeholder/Transmitter only)
     output wire usb_dp_out,
@@ -52,7 +54,7 @@ module boreal_cursor_top_full (
     // 1. 8-Channel Processing Chains
     // =========================================================================
     wire signed [15:0] chan_feature [0:7];
-    wire [7:0] chan_ready;
+    wire [7:0] chan_done_all;
 
     genvar i;
     generate
@@ -76,13 +78,9 @@ module boreal_cursor_top_full (
                 .rst(rst),
                 .valid(v),
                 .x_in(filtered),
-                .power_out(powered)
+                .power_out(powered),
+                .done(i_ready)
             );
-            
-            // Note: bandpower pulses after 64 valid samples
-            reg powered_r;
-            always @(posedge clk) powered_r <= u_pow.count == 64; 
-            assign i_ready = (u_pow.count == 64 && !powered_r);
 
             adaptive_baseline u_base (
                 .clk(clk),
@@ -93,16 +91,20 @@ module boreal_cursor_top_full (
             );
 
             assign chan_feature[i] = centered;
-            assign chan_ready[i] = i_ready;
+            assign chan_done_all[i] = i_ready;
         end
     endgenerate
+
+    // Frame Sync Barrier
+    wire frame_ready;
+    channel_frame_sync u_sync (.clk(clk), .rst(rst), .chan_done(chan_done_all), .frame_ready(frame_ready));
 
     // =========================================================================
     // 2. Serial Feature Extraction Burst
     // =========================================================================
     reg [2:0] burst_cnt;
     reg       bursting;
-    wire      burst_trigger = chan_ready[0]; // Chains are in-sync
+    wire      burst_trigger = frame_ready; // Chains are in-sync
 
     always @(posedge clk) begin
         if (rst) begin
@@ -117,15 +119,33 @@ module boreal_cursor_top_full (
         end
     end
 
-    wire signed [15:0] feat_x, feat_y;
+    wire signed [15:0] feat_x_raw, feat_y_raw;
     boreal_feature_extract u_feat (
         .clk(clk),
         .rst(rst),
         .valid(bursting),
         .sample_in(chan_feature[burst_cnt]),
-        .feature_x(feat_x),
-        .feature_y(feat_y)
+        .feature_x(feat_x_raw),
+        .feature_y(feat_y_raw)
     );
+
+    // 2a. Calibration Layer
+    wire signed [15:0] offset_x, offset_y;
+    wire cal_ready;
+    calibration_controller u_cal (
+        .clk(clk),
+        .rst(rst),
+        .start_cal(start_calibration),
+        .valid(frame_ready),
+        .feat_x(feat_x_raw),
+        .feat_y(feat_y_raw),
+        .offset_x(offset_x),
+        .offset_y(offset_y),
+        .calibrated(cal_ready)
+    );
+
+    wire signed [15:0] feat_x = feat_x_raw - offset_x;
+    wire signed [15:0] feat_y = feat_y_raw - offset_y;
 
     // =========================================================================
     // 3. 2-D Active Inference Core
@@ -148,10 +168,14 @@ module boreal_cursor_top_full (
     );
 
     // =========================================================================
-    // 4. Smoothing & Recenter
+    // 4. Smoothing Layer (Kalman Predictive)
     // =========================================================================
+    wire signed [15:0] mu_x_k, mu_y_k;
+    kalman_smoothing u_kal_x (.clk(clk), .rst(rst), .x_in(mu_x), .x_out(mu_x_k));
+    kalman_smoothing u_kal_y (.clk(clk), .rst(rst), .x_in(mu_y), .x_out(mu_y_k));
+
     wire signed [15:0] mu_x_f, mu_y_f;
-    cursor_smoothing u_smooth (.clk(clk), .rst_n(rst_n), .mu_x(mu_x), .mu_y(mu_y), .mu_x_f(mu_x_f), .mu_y_f(mu_y_f));
+    cursor_smoothing u_smooth (.clk(clk), .rst_n(rst_n), .mu_x(mu_x_k), .mu_y(mu_y_k), .mu_x_f(mu_x_f), .mu_y_f(mu_y_f));
 
     wire signed [15:0] mu_x_c, mu_y_c;
     wire signed [7:0] dx_raw, dy_raw;
@@ -190,22 +214,19 @@ module boreal_cursor_top_full (
     // =========================================================================
     // 7. Click Detection & Output
     // =========================================================================
-    wire l_click_p, r_click_p;
-    reg left_btn, right_btn;
-    dwell_click u_click (.clk(clk), .rst(rst), .dx(dx), .dy(dy), .left_click_pulse(l_click_p), .right_click_pulse(r_click_p));
+    wire left_state, right_state;
+    dwell_click u_click (.clk(clk), .rst(rst), .dx(dx), .dy(dy), .left_btn_state(left_state), .right_btn_state(right_state));
 
-    always @(posedge clk) begin
-        if (rst) begin
-            left_btn <= 0; right_btn <= 0; left_click_pulse_r <= 0;
-        end else begin
-            left_click_pulse_r <= l_click_p;
-            if (l_click_p)  left_btn  <= ~left_btn;
-            if (r_click_p) right_btn <= ~right_btn;
-        end
-    end
-
-    cursor_uart_tx u_uart (.clk(clk), .rst(rst), .send(send_packet_strobe), .buttons({right_btn, left_btn}), .dx(dx), .dy(dy), .tx(uart_tx));
-    boreal_usb_hid u_usb (.clk(clk), .rst_n(rst_n), .dx(dx), .dy(dy), .left_click(left_btn), .right_click(right_btn), .tier(safety_tier), 
+    cursor_uart_tx u_uart (.clk(clk), .rst(rst), .send(send_packet_strobe), .buttons({right_state, left_state}), .dx(dx), .dy(dy), .tx(uart_tx));
+    boreal_usb_hid u_usb (.clk(clk), .rst_n(rst_n), .dx(dx), .dy(dy), .left_click(left_state), .right_click(right_state), .tier(safety_tier), 
                           .dp_out(usb_dp_out), .dn_out(usb_dn_out), .dp_oe(usb_dp_oe), .dn_oe(usb_dn_oe));
+
+    // Performance Audit: Cycle Counter
+    reg [31:0] cycles;
+    always @(posedge clk) begin
+        if (rst) cycles <= 0;
+        else cycles <= cycles + 1;
+    end
+    assign cycle_count_debug = cycles;
 
 endmodule

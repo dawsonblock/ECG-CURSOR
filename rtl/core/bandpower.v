@@ -3,7 +3,8 @@ module bandpower(
     input  wire rst,
     input  wire valid,
     input  wire signed [15:0] x_in,
-    output reg  signed [15:0] power_out
+    output reg  signed [15:0] power_out,
+    output reg        done
 );
 
 reg signed [47:0] acc;
@@ -22,7 +23,12 @@ always @(posedge clk) begin
             power_out <= acc[27:12]; // High-sensitivity slice for neural manifolds
             acc <= 0;
             count <= 0;
+            done <= 1;
+        end else begin
+            done <= 0;
         end
+    end else begin
+        done <= 0;
     end
 end
 

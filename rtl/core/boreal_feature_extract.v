@@ -20,12 +20,18 @@ module boreal_feature_extract #(
     integer i;
 
     initial begin
-        // high-spec orthogonal pattern
-        wx[0]= 32; wx[1]= 24; wx[2]= 16; wx[3]=  8;
-        wx[4]=-08; wx[5]=-16; wx[6]=-24; wx[7]=-32;
+        // Clinical Mapping (Physiological):
+        // CH0 = C3, CH1 = C4 -> Horizontal Intent (C4 - C3)
+        // CH2 = Cz, CH3 = CPz -> Vertical Intent (CPz - Cz)
+        // CH4-7 = Noise Rejection (0 weight)
 
-        wy[0]= -8; wy[1]=-16; wy[2]=-24; wy[3]=-32;
-        wy[4]= 32; wy[5]= 24; wy[6]= 16; wy[7]=  8;
+        // Horizontal (X)
+        wx[0]= -128; wx[1]= 128; wx[2]= 0; wx[3]= 0;
+        wx[4]= 0;    wx[5]= 0;   wx[6]= 0; wx[7]= 0;
+
+        // Vertical (Y)
+        wy[0]= 0;    wy[1]= 0;   wy[2]=-128; wy[3]= 128;
+        wy[4]= 0;    wy[5]= 0;   wy[6]= 0;   wy[7]= 0;
     end
 
     reg [2:0] ch;

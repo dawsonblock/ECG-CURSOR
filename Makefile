@@ -9,12 +9,15 @@ CORE_SRC := rtl/core/boreal_apex_core_2d.v \
             rtl/core/boreal_feature_extract.v \
             rtl/core/eeg_iir_filter.v \
             rtl/core/bandpower.v \
-            rtl/core/adaptive_baseline.v
+            rtl/core/adaptive_baseline.v \
+            rtl/core/channel_frame_sync.v \
+            rtl/core/calibration_controller.v
 
 CURSOR_SRC := rtl/cursor/cursor_smoothing.v \
               rtl/cursor/cursor_map.v \
               rtl/cursor/dwell_click.v \
-              rtl/cursor/intent_gate.v
+              rtl/cursor/intent_gate.v \
+              rtl/cursor/kalman_smoothing.v
 
 OUTPUT_SRC := rtl/output/cursor_uart_tx.v \
               rtl/output/boreal_usb_hid.v

@@ -38,7 +38,7 @@ module boreal_cursor_tb;
     wire signed [7:0]  mon_dx_m   = uut.dx_m;
     wire signed [7:0]  mon_dx_g   = uut.dx_g;
     wire               mon_freeze = uut.noise_freeze;
-    wire               mon_left   = uut.left_btn;  
+    wire               mon_left   = uut.left_state;  
 
     integer test_pass, test_total;
     integer i, cycle;
