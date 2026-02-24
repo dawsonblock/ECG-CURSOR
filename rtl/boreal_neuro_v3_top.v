@@ -6,7 +6,7 @@
  * [ADC] -> [Notch] -> [Spectral Cube] -> [Adaptive Norm] -> [Spatial Filter] -> [Predictive Cursor] -> [HID]
  */
 module boreal_neuro_v3_top (
-    input  wire        clk_100m,
+    input  wire        clk_50m,    // Master 50MHz clock
     input  wire        rst_n,
     input  wire        bite_n,
 
@@ -23,9 +23,9 @@ module boreal_neuro_v3_top (
 );
 
     // --- Clocking & Timing Discipline ---
-    reg [16:0] tick_cnt;
-    wire       tick_1khz = (tick_cnt == 100_000 - 1); // 100MHz -> 1kHz
-    always @(posedge clk_100m) begin
+    reg [15:0] tick_cnt;
+    wire       tick_1khz = (tick_cnt == 50_000 - 1); 
+    always @(posedge clk_50m) begin
         if (!rst_n) tick_cnt <= 0;
         else if (tick_1khz) tick_cnt <= 0;
         else tick_cnt <= tick_cnt + 1;
@@ -57,7 +57,7 @@ module boreal_neuro_v3_top (
 
     // 1. ADC SPI
     ads1299_spi adc (
-        .clk(clk_100m), .rst(!rst_n),
+        .clk(clk_50m), .rst(!rst_n),
         .drdy(ads_drdy_n), .miso(ads_miso),
         .sclk(ads_sclk), .cs(ads_cs_n),
         .sample(raw8[23:0])
@@ -68,7 +68,7 @@ module boreal_neuro_v3_top (
     // 2. Pre-processing: Biquad Notch
     wire signed [23:0] notch_out;
     boreal_biquad notch_60hz (
-        .clk(clk_100m), .rst(!rst_n),
+        .clk(clk_50m), .rst(!rst_n),
         .valid(adc_valid),
         .x_in(raw8[23:0]), .y_out(notch_out),
         .reg_we(1'b0)
@@ -76,7 +76,7 @@ module boreal_neuro_v3_top (
 
     // 3. Spectral Feature Cube (16-Band Bank)
     boreal_spectral_cube cube (
-        .clk(clk_100m), .rst(!rst_n),
+        .clk(clk_50m), .rst(!rst_n),
         .valid(adc_valid),
         .x_in(notch_out),
         .spectral_vector(spectral_vec),
@@ -85,7 +85,7 @@ module boreal_neuro_v3_top (
 
     // 4. Adaptive Neural Core (Legacy Tracking)
     boreal_apex_core_v3 core (
-        .clk(clk_100m), .rst_n(rst_n),
+        .clk(clk_50m), .rst_n(rst_n),
         .bite_n(bite_n && (safety_tier == 0)), 
         .raw8({168'b0, notch_out}),
         .adc_valid(adc_valid), .ch(ch),
@@ -94,7 +94,7 @@ module boreal_neuro_v3_top (
 
     // 5. Adaptive Normalizer (Z-Score)
     boreal_adaptive_norm norm (
-        .clk(clk_100m), .rst(!rst_n),
+        .clk(clk_50m), .rst(!rst_n),
         .valid(frame_valid),
         .features_in({112'b0, mu0}), 
         .lock(bite_n && (safety_tier == 0)),
@@ -102,19 +102,19 @@ module boreal_neuro_v3_top (
         .done(norm_done)
     );
 
-    // 6. Spatial Filter (2x8 Matrix)
+    // 6. Spatial Filter (2x8 Matrix - Research-Grade BRAM MAC)
     boreal_spatial_filter spat (
-        .clk(clk_100m), .rst(!rst_n),
+        .clk(clk_50m), .rst(!rst_n),
         .valid(norm_done),
         .features(z_features),
         .ux(ux_proj), .uy(uy_proj),
         .out_valid(proj_valid),
-        .reg_we(1'b0)
+        .host_we(1'b0) // Placeholder for host matrix injection
     );
 
     // 7. Predictive Cursor (Latency Compensation)
     boreal_predictive_cursor pred (
-        .clk(clk_100m), .rst(!rst_n),
+        .clk(clk_50m), .rst(!rst_n),
         .valid(proj_valid),
         .vx_in(ux_proj), .vy_in(uy_proj),
         .vx_pred(vx_pred), .vy_pred(vy_pred)
@@ -122,7 +122,7 @@ module boreal_neuro_v3_top (
 
     // 8. Intent Classifier
     boreal_intent_classifier intent (
-        .clk(clk_100m), .rst(!rst_n),
+        .clk(clk_50m), .rst(!rst_n),
         .valid(proj_valid),
         .ux(vx_pred), .uy(vy_pred), // Use predictive coords
         .click(intent_click),
@@ -131,13 +131,13 @@ module boreal_neuro_v3_top (
 
     // 9. Safety & Artifacts
     boreal_artifact_monitor art_mon (
-        .clk(clk_100m), .rst(!rst_n),
+        .clk(clk_50m), .rst(!rst_n),
         .valid(adc_valid), .x(notch_out),
         .flags(artifact_flags)
     );
 
     boreal_safety_tiers safety_ctrl (
-        .clk(clk_100m), .rst(!rst_n),
+        .clk(clk_50m), .rst(!rst_n),
         .artifact_flags(artifact_flags),
         .clear_latch(bite_n), 
         .tier(safety_tier)
@@ -145,7 +145,7 @@ module boreal_neuro_v3_top (
 
     // 10. Velocity & PWM
     boreal_velocity_pwm ctrl (
-        .clk(clk_100m), .rst_n(rst_n),
+        .clk(clk_50m), .rst_n(rst_n),
         .enable(bite_n && (safety_tier < 2)),
         .mu(vx_pred[23:8]), // Use predictive coords
         .pwm(pwm_out)
@@ -155,7 +155,7 @@ module boreal_neuro_v3_top (
     wire [7:0] hid_report [0:7];
     wire       hid_valid;
     usb_hid_report host_hid (
-        .clk(clk_100m), .rst(!rst_n),
+        .clk(clk_50m), .rst(!rst_n),
         .tick_1khz(tick_1khz),
         .dx(vx_pred[15:8]), .dy(vy_pred[15:8]),
         .buttons({bite_n, intent_click}),
@@ -165,7 +165,7 @@ module boreal_neuro_v3_top (
     );
 
     // Synchronization logic
-    always @(posedge clk_100m) begin
+    always @(posedge clk_50m) begin
         if (!rst_n) begin
             frame_id <= 0;
             frame_valid <= 0;

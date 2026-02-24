@@ -27,6 +27,7 @@ RTL_FILES = rtl/core/boreal_memory.v \
             rtl/io/ads1299_spi.v \
             rtl/safety/boreal_artifact_monitor.v \
             rtl/safety/boreal_safety_tiers.v \
+            rtl/safety/boreal_watchdog.v \
             rtl/boreal_neuro_v3_top.v
 
 TB_FILES = tb/boreal_v3_tb.v

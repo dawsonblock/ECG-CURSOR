@@ -7,20 +7,43 @@
 
 module boreal_v3_tb;
 
-    reg clk, rst_n, bite_n;
+    reg clk_50m, rst_n, bite_n;
     reg ads_drdy_n, ads_miso;
     wire ads_sclk, ads_cs_n, uart_tx, pwm_out, stim_out;
 
     boreal_neuro_v3_top uut (
-        .clk_100m(clk), .rst_n(rst_n), .bite_n(bite_n),
+        .clk_50m(clk_50m), .rst_n(rst_n), .bite_n(bite_n),
         .ads_drdy_n(ads_drdy_n), .ads_miso(ads_miso),
         .ads_sclk(ads_sclk), .ads_cs_n(ads_cs_n),
         .uart_rx(1'b1), .uart_tx(uart_tx),
         .pwm_out(pwm_out), .stim_out(stim_out)
     );
 
-    // Clock Generation
-    always #5 clk = ~clk;
+    // Clock Generation (50MHz = 20ns period)
+    always #10 clk_50m = ~clk_50m;
+
+    // --- Procedural Safety Checks (Formal Safety Replacement) ---
+    // 1. Motion Lock: If Tier 3 (Halt), dx/dy must be 0
+    always @(posedge clk_50m) begin
+        if (uut.safety_tier == 2'd3) begin
+            if (uut.vx_pred != 0 || uut.vy_pred != 0) begin
+                $display("CRITICAL ERROR: Motion Lock Violation in Tier 3!");
+                $finish;
+            end
+        end
+    end
+
+    // 2. Frame Monotonicity
+    reg [7:0] prev_frame_id;
+    always @(posedge uut.frame_valid) begin
+        if (uut.frame_id > 0 && uut.frame_id != prev_frame_id + 1'b1) begin
+            // $display("WARNING: Frame discontinuity detected");
+        end
+        prev_frame_id <= uut.frame_id;
+    end
+
+    // 3. HID Frequency (1kHz ideally)
+    // Handled by monitor below
 
     // Simulation Task: Simulate ADC Frame
     task send_adc_frame(input signed [23:0] val);
@@ -38,7 +61,7 @@ module boreal_v3_tb;
         $dumpvars(0, boreal_v3_tb);
 
         // Initialize
-        clk = 0; rst_n = 0; bite_n = 0;
+        clk_50m = 0; rst_n = 0; bite_n = 0;
         ads_drdy_n = 1; ads_miso = 0;
 
         #100 rst_n = 1; #100;

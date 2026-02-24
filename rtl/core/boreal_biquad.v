@@ -38,11 +38,11 @@ module boreal_biquad #(
             a1 <= DEFAULT_A1; a2 <= DEFAULT_A2;
         end else if (reg_we) begin
             case (reg_addr)
-                3'd0: b0 <= reg_din;
-                3'd1: b1 <= reg_din;
-                3'd2: b2 <= reg_din;
-                3'd3: a1 <= reg_din;
-                3'd4: a2 <= reg_din;
+                3'd0: b0 <= reg_din; // 0x00
+                3'd1: b1 <= reg_din; // 0x04 (assuming lower bits of bus address)
+                3'd2: b2 <= reg_din; // 0x08
+                3'd3: a1 <= reg_din; // 0x0C
+                3'd4: a2 <= reg_din; // 0x10
             endcase
         end
     end

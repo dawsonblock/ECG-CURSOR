@@ -1,32 +1,40 @@
 /*
  * boreal_spatial_filter.v
  *
- * Implements a 2x8 spatial projection matrix: u = M * z
- * where z is the input feature vector (8 channels) and M is a 2x8 matrix.
- * Used for whitening and dimensionality reduction in BCI control.
+ * Implements a research-grade BRAM-based 2x8 spatial filter.
+ * u = M * (z - offset)
  *
- * Matrix coefficients are stored in a small BRAM-style reg array for runtime updates.
+ * This version uses a real Dual-Port BRAM for matrix storage, 
+ * allowing high-speed MAC execution and host weight injection.
  */
 module boreal_spatial_filter (
     input  wire        clk,
     input  wire        rst,
     input  wire        valid,
-    input  wire [127:0] features, // 8 x 16-bit normalized features (z-scores)
+    input  wire [127:0] features, // 8 x 16-bit normalized features
     
     output reg  signed [23:0] ux,
     output reg  signed [23:0] uy,
     output reg         out_valid,
 
-    // Runtime Matrix Loading
-    input  wire [3:0]  reg_addr, // 0-7: Row 0 (ux), 8-15: Row 1 (uy)
-    input  wire [15:0] reg_din,
-    input  wire        reg_we
+    // Dual-Port BRAM Interface for Host
+    input  wire [4:0]  host_addr,
+    input  wire [15:0] host_din,
+    input  wire        host_we
 );
 
-    reg signed [15:0] matrix [0:15];
-    wire signed [15:0] z [0:7];
+    // Matrix Storage (16x16-bit: 8 for UX row, 8 for UY row)
+    reg signed [15:0] matrix_ram [0:31]; 
+    reg [4:0]  read_addr;
+    reg signed [15:0] matrix_out;
 
-    // Unpack features
+    always @(posedge clk) begin
+        if (host_we) matrix_ram[host_addr] <= host_din;
+        matrix_out <= matrix_ram[read_addr];
+    end
+
+    // Input Unpack
+    wire signed [15:0] z [0:7];
     genvar i;
     generate
         for (i=0; i<8; i=i+1) begin : unpack
@@ -34,52 +42,59 @@ module boreal_spatial_filter (
         end
     endgenerate
 
-    // Matrix Loading
-    always @(posedge clk) begin
-        if (rst) begin
-            // Default to Identity-like or simple mapping
-            integer j;
-            for (j=0; j<16; j=j+1) matrix[j] <= 0;
-            matrix[0] <= 16'h4000; // 0.5 default gain
-            matrix[9] <= 16'h4000;
-        end else if (reg_we) begin
-            matrix[reg_addr] <= reg_din;
-        end
-    end
-
-    // Pipeline logic
+    // Sequential MAC Pipeline
     reg signed [31:0] acc_x, acc_y;
-    reg [3:0]         count;
-    reg               busy;
+    reg [3:0]  state;
+    reg [2:0]  idx;
 
     always @(posedge clk) begin
         if (rst) begin
+            state <= 0;
+            idx <= 0;
+            read_addr <= 0;
             ux <= 0; uy <= 0;
             out_valid <= 0;
-            busy <= 0;
-            count <= 0;
-            acc_x <= 0; acc_y <= 0;
         end else begin
-            out_valid <= 0; // Default
-
-            if (valid && !busy) begin
-                busy <= 1;
-                count <= 0;
-                acc_x <= 0;
-                acc_y <= 0;
-            end else if (busy) begin
-                acc_x <= acc_x + matrix[count] * z[count];
-                acc_y <= acc_y + matrix[count+8] * z[count];
+            out_valid <= 0;
+            case (state)
+                0: begin // Idle
+                    if (valid) begin
+                        state <= 1;
+                        idx <= 0;
+                        acc_x <= 0;
+                        acc_y <= 0;
+                        read_addr <= 0;
+                    end
+                end
                 
-                if (count == 7) begin
-                    busy <= 0;
-                    ux <= acc_x[31:8]; // Q correction (example)
+                1: begin // Fetch & Accumulate
+                    read_addr <= idx;         // Row 0
+                    state <= 2;
+                end
+                
+                2: begin
+                    read_addr <= idx + 8;     // Row 1
+                    acc_x <= acc_x + matrix_out * z[idx];
+                    state <= 3;
+                end
+                
+                3: begin
+                    acc_y <= acc_y + matrix_out * z[idx];
+                    if (idx == 7) state <= 4;
+                    else begin
+                        idx <= idx + 1;
+                        read_addr <= idx + 1;
+                        state <= 2;
+                    end
+                end
+                
+                4: begin
+                    ux <= acc_x[31:8];
                     uy <= acc_y[31:8];
                     out_valid <= 1;
-                end else begin
-                    count <= count + 1;
+                    state <= 0;
                 end
-            end
+            endcase
         end
     end
 
