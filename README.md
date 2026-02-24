@@ -1,68 +1,74 @@
-# Boreal Neuro-Core 2D | Advanced EEG Cursor
+# Boreal Neuro-Core | Advanced Adaptive BCI
 
-[![RTL Build](https://img.shields.io/badge/EEG--Pipeline-Verified-success.svg)]()
-[![Hardware](https://img.shields.io/badge/Medical--Grade-Signal%20Chain-blue.svg)]()
-[![Safety](https://img.shields.io/badge/Guard-Latching-red.svg)]()
+![RTL Build](https://img.shields.io/badge/EEG--Pipeline-Verified-success.svg)
+![Hardware](https://img.shields.io/badge/Medical--Grade-Signal%20Chain-blue.svg)
+![Intelligence](https://img.shields.io/badge/Adaptive-LMS%20Learning-purple.svg)
+![Safety](https://img.shields.io/badge/Guard-Latching-red.svg)
 
-> **Medical-grade EEG-to-Cursor processing for the Boreal Neuro-Core.**  
-> Featuring parallel signal conditioning, energy-based intent extraction, and safety-critical artifact protection.
+> **Medical-grade, adaptive EEG-to-Intent processing in pure FPGA RTL.**  
+> Featuring Common Spatial Pattern (CSP) filtering, Kalman state estimation, online LMS learning, and symbolic intent extraction.
 
 ---
 
-## 🌈 Architecture: The Medical-Grade Chain
+## 🌈 Architecture: The Intelligent Pipeline
 
 ```mermaid
 graph TD
     A[8-ch EEG In] --> B[Signal Guard]
-    B -- Freeze --| Saturation | C[Zero Velocity]
+    B -- Freeze --| Saturation | C[Zero Output]
     
-    subgraph Parallel Chains x8
-        A --> D[Bandpass Filter]
-        D --> E[Bandpower Extract]
-        E --> F[Adaptive Baseline]
+    subgraph Signal Conditioning
+        A --> D[Bandpass/Notch Filters]
+        D --> E[Adaptive Normalization]
     end
     
-    F --> G_Sync[Frame Sync Barrier]
-    G_Sync --> G_Cal[Clinical Calibration]
-    G_Cal --> G[Spatial Mixing C3/C4]
-    G --> H[2D Active Inference]
-    H --> H_Kal[Kalman Smoothing]
-    H_Kal --> I[Cursor Mapping]
-    I --> J[Intent Gate]
-    J --> K[UART Packet Streamer]
-    K --> L[RP2040 Bridge]
+    subgraph Intelligence Core
+        E --> F[CSP Spatial Filter]
+        F --> G[Kalman State Estimator]
+        G --> H[LMS Adaptive Decoder]
+        H --> I[Symbolic Intent Mapper]
+    end
+    
+    I -.-> |Continuous Intent| J(Status & Safety Gate)
+    I -.-> |Discrete States| J
+    J --> K[USB HID Engine]
+    K --> L[RFSN Decision VM]
 ```
 
 ---
 
 ## ⚡ Core Features
 
-### 1. Signal Processing (RTL)
+### 1. Neuro-Intelligence (RTL)
 
-* **8-Channel IIR Pipeline**: Parallel bandpass/notch filtering (1-30Hz).
-* **Frame Barrier Sync**: Hardware-level mask ensures spatial features are phase-aligned across all 8 processing chains.
-* **Energy Extraction**: Square-and-accumulate bandpower for stable intent decoding.
-* **Clinical Calibration**: 6-state baseline normalization for user-specific biosignal offsets.
-* **Physiological Mapping**: Spatial weights optimized for C3, C4, Cz, and CPz clinical electrode layouts.
-* **Kalman Predictive Smoothing**: Single-tap predictive filter (K=0.2) to reduce control lag while maintaining noise rejection.
-* **Precision Gating**: Deadzone intent logic to eliminate resting jitter.
+* **Common Spatial Pattern (CSP)**: Statistically optimized spatial weights to maximize variance between 8-channel EEG motor intent states.
+* **Kalman State Estimator**: Fixed-point temporal state model tracking latent intent, eliminating momentary noise spikes.
+* **LMS Adaptive Decoder**: Online gradient descent learning continuously adjusts projection weights based on error/reward, personalizing to the user.
+* **Symbolic Intent Extraction**: Translates continuous neural coordinates into actionable machine codes (`STATE_IDLE`, `STATE_MOVE_X`, `STATE_MOVE_Y`, `STATE_SELECT`).
 
-### 2. Safety & Robustness
+### 2. Signal Processing
 
-* **Latching Noise Guard**: Freezes all movement if any electrode saturates, with a configurable decay timer.
-* **Checksum Verification**: XOR-protected packets ensure data integrity over long UART links.
-* **Watchdog Safety**: Host-side bridge zeros movement if signal is lost.
+* **8-Channel IIR Pipeline**: Parallel DC-blocking and noise filtering.
+* **Frame Barrier Sync**: Hardware-level mask ensures synchronous updates across the 50MHz master clock domain.
+* **Clinical Calibration**: Dynamic baseline variance and mean tracking.
 
-### 3. Hardware Ready
+### 3. Safety & Robustness
 
-* **ADS1299 SPI**: Native interface for standard biosignal front-ends.
-* **UART 115200**: Standard link to all common MCUs.
+* **Latching Noise Guard**: Freezes all movement if any electrode saturates.
+* **Hardware Watchdog**: Triggers safety halving if ADC frame rates stall.
+* **CRC-8 Protection**: Hardened 8-byte HID packets (1kHz synchronous timing).
+
+### 4. Hardware Ready
+
+* **ADS1299 SPI**: Native interface for 24-bit clinical front-ends.
+* **USB HID**: 1kHz native reporting to the host PC OS.
+* **MMIO Tuning**: All Kalman matrices ($A$, $H$, $K$), LMS learning rates ($\eta$), and Symbolic thresholds are fully accessible over the host memory bus.
 
 ---
 
 ## 🛠 Verification
 
-Ensure the advanced pipeline is functional:
+Ensure the advanced pipeline is functional via Icarus Verilog:
 
 ```bash
 make test
@@ -70,17 +76,15 @@ make test
 
 ### Passing Specs
 
-* ✅ **Clinical Calibration**: RUN state and offset established for specific users.
-* ✅ **Kalman Filter**: Predictive cursor path with minimized group delay.
-* ✅ **Physiological Layout**: C3/C4 Horizontal, Cz/CPz Vertical confirmed.
-* ✅ **HID Click Logic**: HID-standard press/release states for OS drivers.
-* ✅ **Saturation Freeze**: Safety-critical artifact protection.
+* ✅ **Mathematical Stability**: Fixed-point LMS and Kalman algorithms avoid divergence.
+* ✅ **Synchronous Timing**: System passes 50MHz disciplined strict mode.
+* ✅ **Safety Latching**: Tier 3 hardware interlock zeroes all intent outputs.
 
 ---
 
 ## 🛠 Hardware Deployment
 
-The Boreal 2D Neuro-Core is optimized for the **Digilent Arty A7-100T** (Xilinx Artix-7 100T) research platform.
+The Boreal Neuro-Core is optimized for the **Digilent Arty A7-100T** (Xilinx Artix-7 100T) research platform.
 
 ### Standard Build Stack
 
