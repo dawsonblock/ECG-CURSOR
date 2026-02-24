@@ -1,67 +1,45 @@
-# Boreal Neuro-Core — 2D Cursor Control
-# Makefile for simulation with Icarus Verilog
+# Boreal Neuro-Core Makefile
+# Usage:
+#   make test    - Run Icarus Verilog simulation
+#   make lint    - Run Verilator linting
+#   make docker  - Build and run in Docker
 
-IVERILOG := iverilog
-VVP      := vvp
+IVERILOG = iverilog
+VVP = vvp
+VERILATOR = verilator
 
-# Source file lists
-CORE_SRC := rtl/core/boreal_apex_core_2d.v \
-            rtl/core/boreal_feature_extract.v \
-            rtl/core/eeg_iir_filter.v \
-            rtl/core/bandpower.v \
-            rtl/core/adaptive_baseline.v \
-            rtl/core/channel_frame_sync.v \
-            rtl/core/calibration_controller.v
+RTL_FILES = rtl/core/boreal_memory.v \
+            rtl/core/boreal_pll_tracker.v \
+            rtl/core/boreal_rr8.v \
+            rtl/core/boreal_apex_core_v3.v \
+            rtl/core/boreal_biquad.v \
+            rtl/core/calibration_controller.v \
+            rtl/cursor/boreal_velocity_pwm.v \
+            rtl/output/boreal_uart_host.v \
+            rtl/output/cursor_uart_tx.v \
+            rtl/io/ads1299_spi.v \
+            rtl/safety/boreal_artifact_monitor.v \
+            rtl/safety/boreal_safety_tiers.v \
+            rtl/boreal_neuro_v3_top.v
 
-CURSOR_SRC := rtl/cursor/cursor_smoothing.v \
-              rtl/cursor/cursor_map.v \
-              rtl/cursor/dwell_click.v \
-              rtl/cursor/intent_gate.v \
-              rtl/cursor/kalman_smoothing.v
+TB_FILES = tb/boreal_v3_tb.v
 
-OUTPUT_SRC := rtl/output/cursor_uart_tx.v \
-              rtl/output/boreal_usb_hid.v
-
-ADVANCED_SRC := rtl/advanced/cursor_adaptive_gain.v \
-                rtl/advanced/cursor_recenter.v
-
-SAFETY_SRC   := rtl/safety/signal_guard.v
-IO_SRC       := rtl/io/ads1299_spi.v
-
-# Top-level modules
-TOP_BASE := rtl/boreal_cursor_top.v
-TOP_FULL := rtl/boreal_cursor_top_full.v
-
-# Base build (core pipeline only)
-BASE_SRC := $(CORE_SRC) $(CURSOR_SRC) $(SAFETY_SRC) rtl/output/cursor_uart_tx.v $(TOP_BASE)
-
-# Full build (all modules)
-FULL_SRC := $(CORE_SRC) $(CURSOR_SRC) $(OUTPUT_SRC) $(ADVANCED_SRC) $(SAFETY_SRC) $(IO_SRC) $(TOP_FULL)
-
-# Testbench
-TB_SRC := tb/boreal_cursor_tb.v
-
-.PHONY: all test test-full clean
+.PHONY: all test lint clean docker
 
 all: test
 
-# Compile and run core testbench
-test: build/tb
-	$(VVP) build/tb
+test: boreal_v3_instrument
+	$(VVP) boreal_v3_instrument
 
-build/tb: $(TB_SRC) $(BASE_SRC) | build
-	$(IVERILOG) -o $@ $^
+boreal_v3_instrument: $(RTL_FILES) $(TB_FILES)
+	$(IVERILOG) -g2012 -o boreal_v3_instrument $(RTL_FILES) $(TB_FILES)
 
-# Compile full build (link check only)
-test-full: build/full
-	@echo "Full build compiled successfully (all 12 modules linked)."
+lint:
+	$(VERILATOR) --lint-only -Irtl/core -Irtl/cursor -Irtl/io -Irtl/output -Irtl/safety rtl/boreal_neuro_v3_top.v
 
-build/full: $(FULL_SRC) | build
-	$(IVERILOG) -o $@ $^
+docker:
+	docker build -t boreal-v3 .
+	docker run --rm boreal-v3
 
-build:
-	mkdir -p build
-
-# Clean all build artifacts
 clean:
-	rm -rf build *.vcd
+	rm -f boreal_v3_instrument boreal_v3.vcd

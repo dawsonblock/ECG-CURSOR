@@ -16,6 +16,8 @@ always @(posedge clk) begin
         cs <= 1;
         sclk <= 0;
         bitcnt <= 0;
+        sample <= 0;
+        shift <= 0;
     end else if (!drdy) begin
         cs <= 0;
         sclk <= ~sclk;

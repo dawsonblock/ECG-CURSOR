@@ -1,0 +1,26 @@
+name: RTL Verification
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y iverilog verilator
+        
+    - name: Verilator Lint
+      run: |
+        verilator --lint-only -Irtl/core -Irtl/cursor -Irtl/io -Irtl/output -Irtl/safety rtl/boreal_neuro_v3_top.v
+        
+    - name: Run Testbench
+      run: |
+        make test

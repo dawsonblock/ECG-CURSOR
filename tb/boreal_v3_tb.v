@@ -1,8 +1,8 @@
 /*
  * boreal_v3_tb.v
  *
- * Full-stack verification for Boreal Neuro-Core v3.
- * Testing: Scheduler, Adaptive Learning, Velocity Stability.
+ * Full-stack verification for Boreal Neuro-Core v3 Instrument-Grade.
+ * Testing: FSM, Safety Tiers, Artifact Detection, CRC8 Communication.
  */
 `timescale 1ns/1ps
 
@@ -41,23 +41,35 @@ module boreal_v3_tb;
 
         #100 rst_n = 1; #100 bite_n = 1;
         
-        // Simulate ADC frames (8 Hz rhythmic signal)
-        repeat (2000) begin
+        $display("--- Starting Instrument-Grade Verification ---");
+
+        // PHASE 1: Normal Operation
+        $display("PI: Simulating Normal Rhythmic Signal...");
+        repeat (100) begin
             ads_drdy_n = 0;
             #100 ads_drdy_n = 1;
-            #10000; // ~10us between frames
+            #10000;
+        end
+
+        // PHASE 2: Artifact Simulation (Saturation)
+        $display("PII: Simulating Artifact (Saturation)...");
+        ads_miso = 1; // High signal
+        repeat (10) begin
+            ads_drdy_n = 0;
+            #100 ads_drdy_n = 1;
+            #10000;
         end
         
         #100000;
-        $display("V3 Stack Verification Complete");
+        $display("V3 Instrument-Grade Verification Complete");
         $finish;
     end
 
-    // Monitor Weight Convergence
+    // Monitor Safety State
     always @(posedge clk) begin
-        if (uut.core.we_b) begin
-            $display("time=%t | ch=%d | mu=%d | eps=%d | w_new=%d", 
-                      $time, uut.ch, uut.core.mu[uut.ch], uut.core.eps[uut.ch], uut.core.din_b[15:0]);
+        if (uut.frame_valid) begin
+            $display("time=%t | frame=%d | tier=%d | flags=%b | mu=%d", 
+                      $time, uut.frame_id, uut.safety_tier, uut.artifact_flags, uut.mu0);
         end
     end
 

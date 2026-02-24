@@ -10,25 +10,29 @@ module bandpower(
 reg signed [47:0] acc;
 reg [7:0] count;
 
+localparam WINDOW = 64;
+
 always @(posedge clk) begin
     if (rst) begin
-        acc <= 0;
         count <= 0;
-        power_out <= 0;
-    end else if (valid) begin
-        acc <= acc + x_in * x_in;
-        count <= count + 1;
-
-        if (count == 64) begin
-            power_out <= acc[27:12]; // High-sensitivity slice for neural manifolds
-            acc <= 0;
-            count <= 0;
-            done <= 1;
-        end else begin
-            done <= 0;
-        end
-    end else begin
+        acc <= 0;
         done <= 0;
+        power_out <= 0;
+    end else begin
+        done <= 0; // Default
+
+        if (valid) begin
+            acc <= acc + x_in * x_in;
+
+            if (count == WINDOW-1) begin
+                power_out <= acc[27:12];
+                acc <= 0;
+                count <= 0;
+                done <= 1;
+            end else begin
+                count <= count + 1;
+            end
+        end
     end
 end
 

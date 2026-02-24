@@ -24,6 +24,13 @@ module boreal_memory #(
 
     reg [DATA_WIDTH-1:0] memory [0:(1<<ADDR_WIDTH)-1];
 
+    initial begin
+        integer i;
+        for (i=0; i<(1<<ADDR_WIDTH); i=i+1) begin
+            memory[i] = 0;
+        end
+    end
+
     // Port A
     always @(posedge clk) begin
         dout_a <= memory[addr_a];
